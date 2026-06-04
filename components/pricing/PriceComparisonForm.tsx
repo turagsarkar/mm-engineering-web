@@ -1,0 +1,232 @@
+'use client'
+import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { useToast } from '@/components/ui/Toast'
+import { useUser } from '@/lib/hooks/useUser'
+import { formatDateTime } from '@/lib/utils/format'
+import type { Brand, Supplier } from '@/lib/types/database'
+
+interface ExistingLine {
+  id: string
+  supplier_name: string | null
+  price: number | null
+  lead_time: string | null
+  response_time: string | null
+  notes: string | null
+  created_at: string
+  price_comparisons: {
+    created_by: string | null
+    created_at: string
+    profiles: { full_name: string | null; email: string } | null
+  } | null
+}
+
+export function PriceComparisonForm() {
+  const { user } = useUser()
+  const { toast } = useToast()
+  const [partNumber, setPartNumber] = useState('')
+  const [brands, setBrands] = useState<Brand[]>([])
+  const [selectedBrandId, setSelectedBrandId] = useState('')
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [rows, setRows] = useState<Record<string, { price: string; leadTime: string; responseTime: string; notes: string }>>({})
+  const [existing, setExisting] = useState<ExistingLine[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    createClient().from('brands').select('*').order('name').then(({ data }) => setBrands(data || []))
+  }, [])
+
+  useEffect(() => {
+    if (!selectedBrandId) { setSuppliers([]); return }
+    createClient()
+      .from('suppliers')
+      .select('*')
+      .eq('brand_id', selectedBrandId)
+      .neq('traffic_light', 'red')
+      .eq('supplier_status', 'active')
+      .order('priority_rank')
+      .then(({ data }) => {
+        setSuppliers(data || [])
+        const init: typeof rows = {}
+        for (const s of data || []) {
+          init[s.id] = { price: '', leadTime: '', responseTime: '', notes: '' }
+        }
+        setRows(init)
+      })
+  }, [selectedBrandId])
+
+  useEffect(() => {
+    if (!partNumber.trim() || !selectedBrandId) { setExisting([]); return }
+    createClient()
+      .from('price_comparison_lines')
+      .select(`
+        id, supplier_name, price, lead_time, response_time, notes, created_at,
+        price_comparisons!inner(
+          created_by, created_at,
+          profiles(full_name, email)
+        )
+      `)
+      .eq('price_comparisons.brand_id', selectedBrandId)
+      .eq('price_comparisons.part_number', partNumber.trim())
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .then(({ data }) => setExisting((data as ExistingLine[]) || []))
+  }, [partNumber, selectedBrandId])
+
+  function updateRow(supplierId: string, field: string, value: string) {
+    setRows(prev => ({ ...prev, [supplierId]: { ...prev[supplierId], [field]: value } }))
+  }
+
+  async function handleSave() {
+    if (!partNumber.trim() || !selectedBrandId) {
+      toast('Enter a part number and select a brand', 'error')
+      return
+    }
+    const entries = suppliers.filter(s => rows[s.id]?.price || rows[s.id]?.notes)
+    if (entries.length === 0) {
+      toast('Enter at least one price or note', 'error')
+      return
+    }
+    setLoading(true)
+    const supabase = createClient()
+
+    // 1. Create header row
+    const { data: header, error: headerErr } = await supabase
+      .from('price_comparisons')
+      .insert({ brand_id: selectedBrandId, part_number: partNumber.trim(), created_by: user?.id })
+      .select('id')
+      .single()
+
+    if (headerErr || !header) {
+      toast(headerErr?.message || 'Failed to save', 'error')
+      setLoading(false)
+      return
+    }
+
+    // 2. Insert lines
+    const lines = entries.map(s => ({
+      comparison_id: header.id,
+      supplier_id: s.id,
+      supplier_name: s.name,
+      supplier_email: s.email,
+      price: rows[s.id]?.price ? parseFloat(rows[s.id].price) : null,
+      lead_time: rows[s.id]?.leadTime || null,
+      response_time: rows[s.id]?.responseTime || null,
+      notes: rows[s.id]?.notes || null,
+    }))
+
+    const { error: linesErr } = await supabase.from('price_comparison_lines').insert(lines)
+    if (linesErr) { toast(linesErr.message, 'error') }
+    else {
+      toast('Prices saved', 'success')
+      setPartNumber('')
+      setSelectedBrandId('')
+      setSuppliers([])
+      setRows({})
+      setExisting([])
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+        <h3 className="font-semibold text-gray-900">New comparison</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Input
+            id="part"
+            label="Part number *"
+            placeholder="e.g. 1SBL181001R8100"
+            value={partNumber}
+            onChange={e => setPartNumber(e.target.value)}
+          />
+          <div className="flex flex-col gap-1">
+            <label htmlFor="brand" className="text-sm font-medium text-gray-700">Brand *</label>
+            <select
+              id="brand"
+              value={selectedBrandId}
+              onChange={e => setSelectedBrandId(e.target.value)}
+              className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select brand…</option>
+              {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {suppliers.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 grid grid-cols-12 gap-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+            <div className="col-span-3">Supplier</div>
+            <div className="col-span-2">Price (£)</div>
+            <div className="col-span-2">Lead time</div>
+            <div className="col-span-2">Response</div>
+            <div className="col-span-3">Notes</div>
+          </div>
+          {suppliers.map(s => (
+            <div key={s.id} className="px-6 py-3 grid grid-cols-12 gap-3 border-b border-gray-50 items-center">
+              <div className="col-span-3 text-sm font-medium text-gray-900 truncate">{s.name}</div>
+              <div className="col-span-2">
+                <input type="number" step="0.01" min="0" placeholder="0.00"
+                  value={rows[s.id]?.price || ''}
+                  onChange={e => updateRow(s.id, 'price', e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="col-span-2">
+                <input placeholder="e.g. 2 weeks"
+                  value={rows[s.id]?.leadTime || ''}
+                  onChange={e => updateRow(s.id, 'leadTime', e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="col-span-2">
+                <input placeholder="e.g. 1 day"
+                  value={rows[s.id]?.responseTime || ''}
+                  onChange={e => updateRow(s.id, 'responseTime', e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="col-span-3">
+                <input placeholder="Optional"
+                  value={rows[s.id]?.notes || ''}
+                  onChange={e => updateRow(s.id, 'notes', e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          ))}
+          <div className="px-6 py-4">
+            <Button loading={loading} onClick={handleSave}>Save comparison</Button>
+          </div>
+        </div>
+      )}
+
+      {existing.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-6 py-3 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-900">
+              Previous results for &ldquo;{partNumber}&rdquo;
+            </h3>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {existing.map(line => (
+              <div key={line.id} className="px-6 py-3 flex items-center gap-4 text-sm">
+                <span className="font-medium text-gray-900 w-40 truncate">{line.supplier_name}</span>
+                <span className="text-gray-700">{line.price != null ? `£${line.price}` : '—'}</span>
+                <span className="text-gray-500">{line.lead_time || '—'}</span>
+                {line.notes && <span className="text-gray-400 text-xs truncate">{line.notes}</span>}
+                <span className="text-gray-400 text-xs ml-auto whitespace-nowrap">
+                  {line.price_comparisons?.profiles?.full_name || line.price_comparisons?.profiles?.email} · {formatDateTime(line.created_at)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
