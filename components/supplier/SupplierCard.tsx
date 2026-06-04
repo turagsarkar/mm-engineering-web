@@ -84,7 +84,7 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
           </div>
 
           {/* Row 2: email, contact, margin */}
-          <div className="flex items-center gap-3 flex-wrap text-xs text-gray-500">
+          <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500 mt-0.5">
             {supplier.email && (
               <button
                 onClick={copyEmail}
@@ -105,7 +105,7 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
               <span className="font-medium text-gray-700">Margin: {supplier.margin}</span>
             )}
             {supplier.where_to_look && (
-              <span className="text-gray-400 truncate max-w-32">{supplier.where_to_look}</span>
+              <span className="text-gray-400 truncate max-w-[8rem] sm:max-w-none">{supplier.where_to_look}</span>
             )}
             {supplier.po_number && (
               <span>PO: {supplier.po_number}</span>

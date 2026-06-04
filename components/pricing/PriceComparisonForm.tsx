@@ -111,7 +111,7 @@ export function PriceComparisonForm() {
       supplier_id: s.id,
       supplier_name: s.name,
       supplier_email: s.email,
-      price: rows[s.id]?.price ? parseFloat(rows[s.id].price) : null,
+      price: rows[s.id]?.price ? (isNaN(parseFloat(rows[s.id].price)) ? null : parseFloat(rows[s.id].price)) : null,
       lead_time: rows[s.id]?.leadTime || null,
       response_time: rows[s.id]?.responseTime || null,
       notes: rows[s.id]?.notes || null,
@@ -159,46 +159,52 @@ export function PriceComparisonForm() {
 
       {suppliers.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 grid grid-cols-12 gap-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-            <div className="col-span-3">Supplier</div>
-            <div className="col-span-2">Price (£)</div>
-            <div className="col-span-2">Lead time</div>
-            <div className="col-span-2">Response</div>
-            <div className="col-span-3">Notes</div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px]">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  {['Supplier', 'Price (£)', 'Lead time', 'Response', 'Notes'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {suppliers.map(s => (
+                  <tr key={s.id}>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">{s.name}</td>
+                    <td className="px-4 py-3">
+                      <input type="number" step="0.01" min="0" placeholder="0.00"
+                        value={rows[s.id]?.price || ''}
+                        onChange={e => updateRow(s.id, 'price', e.target.value)}
+                        className="w-24 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input placeholder="e.g. 2 weeks"
+                        value={rows[s.id]?.leadTime || ''}
+                        onChange={e => updateRow(s.id, 'leadTime', e.target.value)}
+                        className="w-28 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input placeholder="e.g. 1 day"
+                        value={rows[s.id]?.responseTime || ''}
+                        onChange={e => updateRow(s.id, 'responseTime', e.target.value)}
+                        className="w-24 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input placeholder="Optional"
+                        value={rows[s.id]?.notes || ''}
+                        onChange={e => updateRow(s.id, 'notes', e.target.value)}
+                        className="w-40 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          {suppliers.map(s => (
-            <div key={s.id} className="px-6 py-3 grid grid-cols-12 gap-3 border-b border-gray-50 items-center">
-              <div className="col-span-3 text-sm font-medium text-gray-900 truncate">{s.name}</div>
-              <div className="col-span-2">
-                <input type="number" step="0.01" min="0" placeholder="0.00"
-                  value={rows[s.id]?.price || ''}
-                  onChange={e => updateRow(s.id, 'price', e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div className="col-span-2">
-                <input placeholder="e.g. 2 weeks"
-                  value={rows[s.id]?.leadTime || ''}
-                  onChange={e => updateRow(s.id, 'leadTime', e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div className="col-span-2">
-                <input placeholder="e.g. 1 day"
-                  value={rows[s.id]?.responseTime || ''}
-                  onChange={e => updateRow(s.id, 'responseTime', e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div className="col-span-3">
-                <input placeholder="Optional"
-                  value={rows[s.id]?.notes || ''}
-                  onChange={e => updateRow(s.id, 'notes', e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          ))}
           <div className="px-6 py-4">
             <Button loading={loading} onClick={handleSave}>Save comparison</Button>
           </div>

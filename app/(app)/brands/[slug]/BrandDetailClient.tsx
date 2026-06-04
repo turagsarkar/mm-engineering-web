@@ -12,6 +12,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { BrandHeader } from '@/components/brand/BrandHeader'
 import { SupplierCard } from '@/components/supplier/SupplierCard'
+import { useToast } from '@/components/ui/Toast'
 import type { Brand, Supplier } from '@/lib/types/database'
 
 interface Props {
@@ -23,6 +24,7 @@ export function BrandDetailClient({ brand: initialBrand, initialSuppliers }: Pro
   const [brand, setBrand] = useState(initialBrand)
   const [suppliers, setSuppliers] = useState(initialSuppliers)
   const [archivedOpen, setArchivedOpen] = useState(false)
+  const { toast } = useToast()
 
   const active = suppliers.filter(s => s.traffic_light !== 'red' && s.supplier_status !== 'inactive')
   const archived = suppliers.filter(s => s.traffic_light === 'red' || s.supplier_status === 'inactive')
@@ -42,11 +44,17 @@ export function BrandDetailClient({ brand: initialBrand, initialSuppliers }: Pro
     setSuppliers(reordered)
 
     const supabase = createClient()
-    await Promise.all(
-      reordered.map((s, i) =>
-        supabase.from('suppliers').update({ priority_rank: i }).eq('id', s.id)
+    try {
+      await Promise.all(
+        reordered.map((s, i) =>
+          supabase.from('suppliers').update({ priority_rank: i }).eq('id', s.id)
+        )
       )
-    )
+      toast('Order saved', 'success')
+    } catch {
+      toast('Failed to save order', 'error')
+      setSuppliers(suppliers)
+    }
   }
 
   function handleDelete(id: string) {

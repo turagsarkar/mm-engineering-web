@@ -12,6 +12,8 @@ export async function POST(request: Request) {
 
   const { email, password, full_name, role } = await request.json()
   if (!email || !password) return NextResponse.json({ error: 'Email and password required' }, { status: 400 })
+  if (password.length < 8) return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
+  const safeRole = role === 'admin' ? 'admin' : 'member'
 
   const admin = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,7 +33,7 @@ export async function POST(request: Request) {
     id: newUser.user.id,
     email,
     full_name: full_name || null,
-    role: role || 'member',
+    role: safeRole,
   })
 
   return NextResponse.json({ success: true })

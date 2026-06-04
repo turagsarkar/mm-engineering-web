@@ -79,61 +79,69 @@ export function UserManagerClient({ users: initial, currentUserId }: Props) {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-gray-50 border-b border-gray-100 text-xs font-medium text-gray-500 uppercase tracking-wide">
-          <div className="col-span-4">User</div>
-          <div className="col-span-2">Role</div>
-          <div className="col-span-3">Last login</div>
-          <div className="col-span-2">Status</div>
-          <div className="col-span-1"></div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px]">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">User</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Role</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide hidden md:table-cell">Last login</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
+                <th className="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {users.map(u => (
+                <tr key={u.id} className={!u.is_active ? 'opacity-50' : ''}>
+                  <td className="px-6 py-4">
+                    <p className="text-sm font-medium text-gray-900">{u.full_name || '—'}</p>
+                    <p className="text-xs text-gray-400">{u.email}</p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <button
+                      onClick={() => toggleRole(u.id, u.role as 'admin' | 'member')}
+                      disabled={u.id === currentUserId}
+                      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border transition-colors disabled:cursor-default ${
+                        u.role === 'admin'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                          : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                      }`}
+                    >
+                      {u.role === 'admin' ? <Shield className="h-3 w-3" /> : <User className="h-3 w-3" />}
+                      {u.role}
+                    </button>
+                  </td>
+                  <td className="px-4 py-4 text-xs text-gray-500 hidden md:table-cell">
+                    {formatDate(u.last_login)}
+                  </td>
+                  <td className="px-4 py-4">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${u.is_active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {u.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4">
+                    {u.id !== currentUserId && (
+                      <button
+                        onClick={() => toggleActive(u.id, u.is_active)}
+                        className="text-gray-300 hover:text-gray-500 transition-colors"
+                        title={u.is_active ? 'Deactivate' : 'Activate'}
+                      >
+                        {u.is_active ? <ToggleRight className="h-5 w-5 text-green-500" /> : <ToggleLeft className="h-5 w-5" />}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        {users.map(u => (
-          <div key={u.id} className={`grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-50 items-center ${!u.is_active ? 'opacity-50' : ''}`}>
-            <div className="col-span-4 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{u.full_name || '—'}</p>
-              <p className="text-xs text-gray-400 truncate">{u.email}</p>
-            </div>
-            <div className="col-span-2">
-              <button
-                onClick={() => toggleRole(u.id, u.role as 'admin' | 'member')}
-                disabled={u.id === currentUserId}
-                className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border transition-colors disabled:cursor-default ${
-                  u.role === 'admin'
-                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
-                }`}
-              >
-                {u.role === 'admin' ? <Shield className="h-3 w-3" /> : <User className="h-3 w-3" />}
-                {u.role}
-              </button>
-            </div>
-            <div className="col-span-3 text-xs text-gray-500">
-              {formatDate(u.last_login)}
-            </div>
-            <div className="col-span-2">
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${u.is_active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                {u.is_active ? 'Active' : 'Inactive'}
-              </span>
-            </div>
-            <div className="col-span-1 flex justify-end">
-              {u.id !== currentUserId && (
-                <button
-                  onClick={() => toggleActive(u.id, u.is_active)}
-                  className="text-gray-300 hover:text-gray-500 transition-colors"
-                  title={u.is_active ? 'Deactivate' : 'Activate'}
-                >
-                  {u.is_active ? <ToggleRight className="h-5 w-5 text-green-500" /> : <ToggleLeft className="h-5 w-5" />}
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
       </div>
 
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add team member" size="sm">
         <form onSubmit={handleAddUser} className="space-y-4">
           <Input id="ae" label="Email address *" type="email" value={addEmail} onChange={e => setAddEmail(e.target.value)} required />
           <Input id="an" label="Full name" value={addName} onChange={e => setAddName(e.target.value)} />
-          <Input id="ap" label="Password *" type="password" value={addPassword} onChange={e => setAddPassword(e.target.value)} required />
+          <Input id="ap" label="Password * (min 8 characters)" type="password" value={addPassword} onChange={e => setAddPassword(e.target.value)} required minLength={8} />
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium text-gray-700">Role</label>
             <select

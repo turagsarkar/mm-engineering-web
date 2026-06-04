@@ -36,7 +36,7 @@ export function SearchBar() {
     const [{ data: brands }, { data: suppliers }] = await Promise.all([
       supabase.from('brands').select('id,name,slug').ilike('name', term).limit(5),
       supabase.from('suppliers').select('id,name,email,brand_id').ilike('name', term).limit(5),
-    ])
+    ]).catch(() => [{ data: [] }, { data: [] }])
 
     const r: SearchResult[] = [
       ...(brands || []).map(b => ({
@@ -64,6 +64,8 @@ export function SearchBar() {
     setQuery('')
     if (r.type === 'brand' && r.slug) {
       router.push(`/brands/${r.slug}`)
+    } else if (r.type === 'supplier') {
+      router.push(`/suppliers/${r.id}/edit`)
     }
   }
 

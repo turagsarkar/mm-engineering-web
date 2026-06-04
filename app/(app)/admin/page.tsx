@@ -26,7 +26,7 @@ export default async function AdminDashboardPage() {
     supabase.from('suppliers').select('*', { count: 'exact', head: true }).eq('supplier_status', 'active'),
     supabase.from('suppliers').select('*', { count: 'exact', head: true }).eq('ai_approved', true).eq('supplier_status', 'active'),
     supabase.from('brands').select('*', { count: 'exact', head: true }).eq('ai_do_not_quote', true),
-    supabase.from('brands').select('*', { count: 'exact', head: true }).lt('last_reviewed_at', new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()),
+    supabase.from('brands').select('*', { count: 'exact', head: true }).or(`last_reviewed_at.is.null,last_reviewed_at.lt.${new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()}`),
     supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('is_active', true),
     supabase.from('activity_log').select('action_type, entity_name, created_at, profiles(full_name, email)').order('created_at', { ascending: false }).limit(5),
   ])

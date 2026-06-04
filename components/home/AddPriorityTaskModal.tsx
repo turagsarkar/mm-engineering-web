@@ -14,7 +14,7 @@ interface Props {
 }
 
 export function AddPriorityTaskModal({ open, onClose, onCreated }: Props) {
-  const { user } = useUser()
+  const { user, isAdmin } = useUser()
   const { toast } = useToast()
   const [brands, setBrands] = useState<{ id: string; name: string }[]>([])
   const [brandId, setBrandId] = useState('')
@@ -29,7 +29,7 @@ export function AddPriorityTaskModal({ open, onClose, onCreated }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!message.trim()) return
+    if (!message.trim() || !isAdmin) return
     setLoading(true)
     const supabase = createClient()
     const { error } = await supabase.from('priority_tasks').insert({
