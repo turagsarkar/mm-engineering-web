@@ -139,13 +139,4 @@ Add the same three environment variables from `.env.local` in the Vercel project
 
 ## Team accounts
 
-Six team accounts exist in Supabase Auth. Admins can add more via the portal at `/admin/users` without needing to touch Supabase directly.
-
-| Email | Role |
-|---|---|
-| mpatel@mmengservices.co.uk | Admin |
-| zali@mmengservices.co.uk | Admin |
-| usman@mmengservices.co.uk | Member |
-| josh@mmengservices.co.uk | Member |
-| anees@mmengservices.co.uk | Member |
-| hamza@mmengservices.co.uk | Member |
+Accounts are managed by admins via the portal at `/admin/users`. No Supabase dashboard access is required to add or remove team members.
