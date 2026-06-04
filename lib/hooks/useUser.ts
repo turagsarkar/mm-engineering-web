@@ -14,7 +14,7 @@ export function useUser() {
       const { data: { user: authUser } } = await supabase.auth.getUser()
       if (!authUser) { setLoading(false); return }
 
-      const { data: profile, error } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('role, full_name')
         .eq('id', authUser.id)

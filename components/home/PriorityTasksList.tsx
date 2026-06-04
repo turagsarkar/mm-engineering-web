@@ -30,11 +30,11 @@ export function PriorityTasksList() {
 
   async function complete(id: string) {
     const supabase = createClient()
-    await supabase
+    const { error } = await supabase
       .from('priority_tasks')
       .update({ is_active: false, completed_at: new Date().toISOString(), completed_by: user?.id })
       .eq('id', id)
-    load()
+    if (!error) load()
   }
 
   const priorityColor: Record<string, string> = {
