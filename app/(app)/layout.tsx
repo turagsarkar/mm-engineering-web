@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { UserProvider } from '@/lib/context/UserContext'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -9,11 +10,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!user) redirect('/login')
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
-      <Sidebar />
-      <main className="flex-1 flex flex-col overflow-hidden pt-14 lg:pt-0">
-        {children}
-      </main>
-    </div>
+    <UserProvider>
+      <div className="flex h-screen overflow-hidden bg-gray-50">
+        <Sidebar />
+        <main className="flex-1 flex flex-col overflow-hidden pt-14 lg:pt-0">
+          {children}
+        </main>
+      </div>
+    </UserProvider>
   )
 }
