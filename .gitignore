@@ -43,3 +43,5 @@ next-env.d.ts
 # AI agent / editor config
 AGENTS.md
 CLAUDE.md
+
+.vercel
