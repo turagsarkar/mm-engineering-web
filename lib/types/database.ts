@@ -50,6 +50,7 @@ export interface Database {
           review_interval_months: number
           last_reviewed_at: string | null
           reviewed_by: string | null
+          review_disabled: boolean
           created_by: string | null
           created_at: string
           updated_at: string
@@ -66,6 +67,7 @@ export interface Database {
           review_interval_months?: number
           last_reviewed_at?: string | null
           reviewed_by?: string | null
+          review_disabled?: boolean
           created_by?: string | null
         }
         Update: {
@@ -80,6 +82,7 @@ export interface Database {
           review_interval_months?: number
           last_reviewed_at?: string | null
           reviewed_by?: string | null
+          review_disabled?: boolean
           created_by?: string | null
         }
         Relationships: []

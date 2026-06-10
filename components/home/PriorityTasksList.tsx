@@ -28,13 +28,23 @@ export function PriorityTasksList() {
 
   useEffect(() => { load() }, [load])
 
-  async function complete(id: string) {
+  async function complete(task: TaskWithBrand) {
     const supabase = createClient()
     const { error } = await supabase
       .from('priority_tasks')
       .update({ is_active: false, completed_at: new Date().toISOString(), completed_by: user?.id })
-      .eq('id', id)
-    if (!error) load()
+      .eq('id', task.id)
+    if (!error) {
+      // Log 3 points for task completion
+      await supabase.from('activity_log').insert({
+        user_id: user?.id,
+        action_type: 'task_completed',
+        entity_type: 'priority_task',
+        entity_id: task.id,
+        entity_name: task.message.slice(0, 80),
+      })
+      load()
+    }
   }
 
   const priorityColor: Record<string, string> = {
@@ -64,15 +74,13 @@ export function PriorityTasksList() {
         ) : (
           tasks.map(task => (
             <div key={task.id} className="flex items-start gap-3 px-4 py-3">
-              {isAdmin && (
-                <button
-                  onClick={() => complete(task.id)}
-                  className="mt-0.5 text-gray-300 hover:text-green-500 transition-colors shrink-0"
-                  title="Mark complete"
-                >
-                  <CheckSquare className="h-4 w-4" />
-                </button>
-              )}
+              <button
+                onClick={() => complete(task)}
+                className="mt-0.5 text-gray-300 hover:text-green-500 transition-colors shrink-0"
+                title="Mark complete (earns 3 points)"
+              >
+                <CheckSquare className="h-4 w-4" />
+              </button>
               <div className="flex-1 min-w-0">
                 {task.brands && (
                   <p className="text-xs font-medium text-blue-600 mb-0.5">{task.brands.name}</p>

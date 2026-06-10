@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { Edit2, AlertTriangle, CheckCircle, Clock, Bot } from 'lucide-react'
+import { Edit2, AlertTriangle, CheckCircle, Clock, Bot, CalendarCheck, Calendar, BellOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUser } from '@/lib/hooks/useUser'
 import { useToast } from '@/components/ui/Toast'
@@ -17,21 +17,34 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
   const { isAdmin, user } = useUser()
   const { toast } = useToast()
   const [confirmedLoading, setConfirmedLoading] = useState(false)
+  const [showSetDate, setShowSetDate] = useState(false)
+  const [reviewDate, setReviewDate] = useState(
+    brand.last_reviewed_at ? brand.last_reviewed_at.split('T')[0] : ''
+  )
+
+  const reviewIntervalMs = brand.review_interval_months * 30 * 24 * 60 * 60 * 1000
+  const reviewDue = !brand.review_disabled &&
+    (!brand.last_reviewed_at || Date.now() - new Date(brand.last_reviewed_at).getTime() > reviewIntervalMs)
+
+  async function patch(updates: Partial<Brand>) {
+    const supabase = createClient()
+    const { error } = await supabase.from('brands').update(updates).eq('id', brand.id)
+    if (error) { toast(error.message, 'error'); return false }
+    onUpdate(updates)
+    return true
+  }
 
   async function toggleDoNotQuote() {
     if (!isAdmin) return
     const next = !brand.ai_do_not_quote
-    const supabase = createClient()
-    const { error } = await supabase.from('brands').update({ ai_do_not_quote: next }).eq('id', brand.id)
-    if (error) { toast(error.message, 'error') }
-    else {
-      onUpdate({ ai_do_not_quote: next })
+    if (await patch({ ai_do_not_quote: next })) {
+      const supabase = createClient()
       await supabase.from('activity_log').insert({
         user_id: user?.id, action_type: 'brand_edited', entity_type: 'brand',
         entity_id: brand.id, entity_name: brand.name,
         details: { field: 'ai_do_not_quote', value: next },
       })
-      toast(`AI status updated`, 'success')
+      toast('AI status updated', 'success')
     }
   }
 
@@ -39,20 +52,11 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
     if (!isAdmin) return
     setConfirmedLoading(true)
     const next = !brand.confirmed_suppliers
-    const supabase = createClient()
-    const { error } = await supabase
-      .from('brands')
-      .update({ confirmed_suppliers: next })
-      .eq('id', brand.id)
-    if (error) { toast(error.message, 'error') }
-    else {
-      onUpdate({ confirmed_suppliers: next })
+    if (await patch({ confirmed_suppliers: next })) {
+      const supabase = createClient()
       await supabase.from('activity_log').insert({
-        user_id: user?.id,
-        action_type: 'brand_edited',
-        entity_type: 'brand',
-        entity_id: brand.id,
-        entity_name: brand.name,
+        user_id: user?.id, action_type: 'brand_edited', entity_type: 'brand',
+        entity_id: brand.id, entity_name: brand.name,
         details: { field: 'confirmed_suppliers', value: next },
       })
       toast('Updated', 'success')
@@ -60,10 +64,34 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
     setConfirmedLoading(false)
   }
 
+  async function markReviewed() {
+    const now = new Date().toISOString()
+    if (await patch({ last_reviewed_at: now, reviewed_by: user?.id ?? null })) {
+      toast('Marked as reviewed', 'success')
+      setShowSetDate(false)
+    }
+  }
+
+  async function saveReviewDate() {
+    if (!reviewDate) return
+    const iso = new Date(reviewDate).toISOString()
+    if (await patch({ last_reviewed_at: iso, reviewed_by: user?.id ?? null })) {
+      toast('Review date updated', 'success')
+      setShowSetDate(false)
+    }
+  }
+
+  async function toggleReviewDisabled() {
+    const next = !brand.review_disabled
+    if (await patch({ review_disabled: next })) {
+      toast(next ? 'Reviews disabled' : 'Reviews re-enabled', 'success')
+    }
+  }
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
+    <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
       {brand.notification_text && (
-        <div className="flex items-start gap-2 mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+        <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
           {brand.notification_text}
         </div>
@@ -80,21 +108,27 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
             )}
           </div>
           {brand.aliases && brand.aliases.length > 0 && (
-            <p className="text-sm text-gray-500 mt-0.5">
-              Also: {brand.aliases.join(', ')}
-            </p>
+            <p className="text-sm text-gray-500 mt-0.5">Also: {brand.aliases.join(', ')}</p>
           )}
-          <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-            <span className="flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5" />
-              Review every {brand.review_interval_months}mo
-            </span>
+          <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 flex-wrap">
+            {!brand.review_disabled && (
+              <span className="flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5" />
+                Review every {brand.review_interval_months}mo
+              </span>
+            )}
             {brand.last_reviewed_at && (
               <span>Last reviewed: {formatDate(brand.last_reviewed_at)}</span>
             )}
+            {brand.review_disabled && (
+              <span className="flex items-center gap-1 text-gray-400">
+                <BellOff className="h-3.5 w-3.5" /> Reviews disabled
+              </span>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
           {isAdmin && (
             <button
               onClick={toggleConfirmed}
@@ -106,7 +140,7 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
               }`}
             >
               <CheckCircle className="h-3.5 w-3.5" />
-              {brand.confirmed_suppliers ? 'Confirmed Suppliers' : 'Mark Confirmed'}
+              {brand.confirmed_suppliers ? 'Confirmed' : 'Unconfirmed'}
             </button>
           )}
           {isAdmin && (
@@ -119,7 +153,7 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
               }`}
             >
               <Bot className="h-3.5 w-3.5" />
-              {brand.ai_do_not_quote ? 'AI: Do Not Quote' : 'AI: OK to Quote'}
+              {brand.ai_do_not_quote ? 'AI: DNQ' : 'AI: OK'}
             </button>
           )}
           <Link
@@ -131,6 +165,101 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
           </Link>
         </div>
       </div>
+
+      {/* Review section */}
+      {!brand.review_disabled && reviewDue && (
+        <div className="border border-orange-200 bg-orange-50 rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />
+            <p className="text-sm font-medium text-orange-800">Review due</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={markReviewed}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+            >
+              <CalendarCheck className="h-3.5 w-3.5" />
+              Mark as reviewed today
+            </button>
+            <button
+              onClick={() => setShowSetDate(!showSetDate)}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 border border-orange-300 text-orange-700 bg-white rounded-lg hover:bg-orange-50 transition-colors"
+            >
+              <Calendar className="h-3.5 w-3.5" />
+              Set review date
+            </button>
+            <button
+              onClick={toggleReviewDisabled}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 border border-gray-300 text-gray-600 bg-white rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <BellOff className="h-3.5 w-3.5" />
+              Disable reviews
+            </button>
+          </div>
+          {showSetDate && (
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                type="date"
+                value={reviewDate}
+                onChange={e => setReviewDate(e.target.value)}
+                className="text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={saveReviewDate}
+                className="text-xs font-medium px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Save
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Manage review when not due */}
+      {!brand.review_disabled && !reviewDue && brand.last_reviewed_at && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setShowSetDate(!showSetDate)}
+            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <Calendar className="h-3.5 w-3.5" />
+            Change review date
+          </button>
+          <button
+            onClick={toggleReviewDisabled}
+            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <BellOff className="h-3.5 w-3.5" />
+            Disable reviews
+          </button>
+          {showSetDate && (
+            <div className="flex items-center gap-2 w-full">
+              <input
+                type="date"
+                value={reviewDate}
+                onChange={e => setReviewDate(e.target.value)}
+                className="text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={saveReviewDate}
+                className="text-xs font-medium px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Save
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {brand.review_disabled && (
+        <button
+          onClick={toggleReviewDisabled}
+          className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          <BellOff className="h-3.5 w-3.5" />
+          Re-enable reviews
+        </button>
+      )}
     </div>
   )
 }

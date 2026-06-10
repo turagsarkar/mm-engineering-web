@@ -19,17 +19,29 @@ export default async function BrandDetailPage({ params }: Props) {
 
   if (!brand) notFound()
 
-  const { data: suppliers } = await supabase
-    .from('suppliers')
-    .select('*')
-    .eq('brand_id', brand.id)
-    .order('priority_rank', { ascending: true })
-    .order('name', { ascending: true })
+  const [{ data: suppliers }, { data: priceComparisons }] = await Promise.all([
+    supabase
+      .from('suppliers')
+      .select('*')
+      .eq('brand_id', brand.id)
+      .order('priority_rank', { ascending: true })
+      .order('name', { ascending: true }),
+    supabase
+      .from('price_comparisons')
+      .select('id, part_number, description, created_at, created_by')
+      .eq('brand_id', brand.id)
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <TopBar title={brand.name} />
-      <BrandDetailClient brand={brand} initialSuppliers={suppliers ?? []} />
+      <BrandDetailClient
+        brand={brand}
+        initialSuppliers={suppliers ?? []}
+        initialPriceComparisons={priceComparisons ?? []}
+      />
     </div>
   )
 }

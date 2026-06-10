@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useUser } from '@/lib/hooks/useUser'
 import { Shield, User, Settings, LogOut, ChevronDown } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { SearchBar } from '@/components/home/SearchBar'
 import Link from 'next/link'
 
 interface TopBarProps {
@@ -33,10 +34,15 @@ export function TopBar({ title }: TopBarProps) {
   const displayName = user?.full_name || user?.email?.split('@')[0] || 'User'
 
   return (
-    <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-6 shrink-0">
-      <h1 className="text-base font-semibold text-gray-900 truncate">{title}</h1>
+    <header className="h-14 bg-white border-b border-gray-200 flex items-center gap-3 px-4 lg:px-6 shrink-0">
+      <h1 className="text-base font-semibold text-gray-900 truncate shrink-0 max-w-[140px] sm:max-w-[200px]">{title}</h1>
 
-      <div className="relative flex items-center gap-2 shrink-0 ml-2" ref={ref}>
+      {/* Global search — visible on sm and above */}
+      <div className="flex-1 hidden sm:block max-w-md">
+        <SearchBar compact />
+      </div>
+
+      <div className="relative flex items-center gap-2 shrink-0 ml-auto" ref={ref}>
         {isAdmin && (
           <span className="hidden sm:inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
             <Shield className="h-3 w-3" />

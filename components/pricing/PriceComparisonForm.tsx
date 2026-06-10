@@ -92,7 +92,6 @@ export function PriceComparisonForm() {
     setLoading(true)
     const supabase = createClient()
 
-    // 1. Create header row
     const { data: header, error: headerErr } = await supabase
       .from('price_comparisons')
       .insert({ brand_id: selectedBrandId, part_number: partNumber.trim(), created_by: user?.id })
@@ -105,7 +104,6 @@ export function PriceComparisonForm() {
       return
     }
 
-    // 2. Insert lines
     const lines = entries.map(s => ({
       comparison_id: header.id,
       supplier_id: s.id,
@@ -118,8 +116,18 @@ export function PriceComparisonForm() {
     }))
 
     const { error: linesErr } = await supabase.from('price_comparison_lines').insert(lines)
-    if (linesErr) { toast(linesErr.message, 'error') }
-    else {
+    if (linesErr) {
+      toast(linesErr.message, 'error')
+    } else {
+      // Log 2 points for price comparison
+      const brandName = brands.find(b => b.id === selectedBrandId)?.name
+      await supabase.from('activity_log').insert({
+        user_id: user?.id,
+        action_type: 'price_comparison_added',
+        entity_type: 'price_comparison',
+        entity_id: header.id,
+        entity_name: `${partNumber.trim()}${brandName ? ` — ${brandName}` : ''}`,
+      })
       toast('Prices saved', 'success')
       setPartNumber('')
       setSelectedBrandId('')
@@ -163,7 +171,7 @@ export function PriceComparisonForm() {
             <table className="w-full min-w-[600px]">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['Supplier', 'Price (£)', 'Lead time', 'Response', 'Notes'].map(h => (
+                  {['Supplier', 'Price', 'Lead time', 'Response', 'Notes'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -173,7 +181,9 @@ export function PriceComparisonForm() {
                   <tr key={s.id}>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">{s.name}</td>
                     <td className="px-4 py-3">
-                      <input type="number" step="0.01" min="0" placeholder="0.00"
+                      <input
+                        type="text"
+                        placeholder="e.g. 12.50"
                         value={rows[s.id]?.price || ''}
                         onChange={e => updateRow(s.id, 'price', e.target.value)}
                         className="w-24 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -222,7 +232,7 @@ export function PriceComparisonForm() {
             {existing.map(line => (
               <div key={line.id} className="px-6 py-3 flex items-center gap-4 text-sm">
                 <span className="font-medium text-gray-900 w-40 truncate">{line.supplier_name}</span>
-                <span className="text-gray-700">{line.price != null ? `£${line.price}` : '—'}</span>
+                <span className="text-gray-700">{line.price != null ? line.price : '—'}</span>
                 <span className="text-gray-500">{line.lead_time || '—'}</span>
                 {line.notes && <span className="text-gray-400 text-xs truncate">{line.notes}</span>}
                 <span className="text-gray-400 text-xs ml-auto whitespace-nowrap">

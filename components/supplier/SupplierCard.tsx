@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -25,6 +25,19 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
   const { toast } = useToast()
   const [showNotes, setShowNotes] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [latestNote, setLatestNote] = useState<string | null>(null)
+
+  useEffect(() => {
+    createClient()
+      .from('supplier_notes')
+      .select('note_text')
+      .eq('supplier_id', supplier.id)
+      .eq('note_type', 'general')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+      .then(({ data }) => { if (data) setLatestNote(data.note_text) })
+  }, [supplier.id])
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: supplier.id,
@@ -63,7 +76,7 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
         </button>
 
         <div className="flex-1 min-w-0">
-          {/* Row 1: traffic light + name + toggles + actions */}
+          {/* Row 1: traffic light + name + toggles */}
           <div className="flex items-center gap-2 mb-1">
             <TrafficLightToggle
               supplierId={supplier.id}
@@ -83,7 +96,7 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
             )}
           </div>
 
-          {/* Row 2: email, contact, margin */}
+          {/* Row 2: email, contact, margin, where_to_look, po */}
           <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500 mt-0.5">
             {supplier.email && (
               <button
@@ -111,6 +124,13 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
               <span>PO: {supplier.po_number}</span>
             )}
           </div>
+
+          {/* Row 3: notes preview (shown inline if exists) */}
+          {latestNote && (
+            <p className="text-xs text-gray-500 mt-1.5 bg-gray-50 rounded px-2 py-1 border border-gray-100 line-clamp-2">
+              {latestNote}
+            </p>
+          )}
         </div>
 
         {/* Actions */}
@@ -118,7 +138,7 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
           <button
             onClick={() => setShowNotes(!showNotes)}
             className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-            title="Notes"
+            title="All notes"
           >
             <StickyNote className="h-4 w-4" />
           </button>
