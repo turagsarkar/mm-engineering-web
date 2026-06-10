@@ -6,7 +6,9 @@ import { createClient } from '@/lib/supabase/client'
 import { useUser } from '@/lib/hooks/useUser'
 import { useToast } from '@/components/ui/Toast'
 import { formatDate } from '@/lib/utils/format'
-import type { Brand } from '@/lib/types/database'
+import type { Brand, Database } from '@/lib/types/database'
+
+type BrandUpdate = Database['public']['Tables']['brands']['Update']
 
 interface BrandHeaderProps {
   brand: Brand
@@ -26,11 +28,11 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
   const reviewDue = !brand.review_disabled &&
     (!brand.last_reviewed_at || Date.now() - new Date(brand.last_reviewed_at).getTime() > reviewIntervalMs)
 
-  async function patch(updates: Partial<Brand>) {
+  async function patch(updates: BrandUpdate) {
     const supabase = createClient()
     const { error } = await supabase.from('brands').update(updates).eq('id', brand.id)
     if (error) { toast(error.message, 'error'); return false }
-    onUpdate(updates)
+    onUpdate(updates as Partial<Brand>)
     return true
   }
 

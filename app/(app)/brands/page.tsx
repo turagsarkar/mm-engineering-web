@@ -14,7 +14,7 @@ export default async function BrandsPage({ searchParams }: Props) {
 
   let query = supabase
     .from('brands')
-    .select('id, name, slug, aliases, ai_do_not_quote, confirmed_suppliers, notification_text, notification_type, review_interval_months, last_reviewed_at, reviewed_by, created_by, created_at, updated_at')
+    .select('*')
     .order('name')
 
   if (filter === 'ai_do_not_quote') query = query.eq('ai_do_not_quote', true)
