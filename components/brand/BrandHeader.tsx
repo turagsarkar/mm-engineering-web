@@ -24,9 +24,17 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
     brand.last_reviewed_at ? brand.last_reviewed_at.split('T')[0] : ''
   )
 
-  const reviewIntervalMs = brand.review_interval_months * 30 * 24 * 60 * 60 * 1000
+  // Calendar-accurate: next review = last reviewed + interval months
+  function addMonths(date: Date, months: number) {
+    const d = new Date(date)
+    d.setMonth(d.getMonth() + months)
+    return d
+  }
+  const nextReviewDate = brand.last_reviewed_at
+    ? addMonths(new Date(brand.last_reviewed_at), brand.review_interval_months)
+    : null
   const reviewDue = !brand.review_disabled &&
-    (!brand.last_reviewed_at || Date.now() - new Date(brand.last_reviewed_at).getTime() > reviewIntervalMs)
+    (!nextReviewDate || nextReviewDate.getTime() <= Date.now())
 
   async function patch(updates: BrandUpdate) {
     const supabase = createClient()
@@ -93,8 +101,8 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
       {brand.notification_text && (
-        <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+        <div className="flex items-start gap-2 p-3 bg-red-50 border-2 border-red-300 rounded-lg text-sm font-semibold text-red-700">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-red-500" />
           {brand.notification_text}
         </div>
       )}
@@ -121,6 +129,11 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
             )}
             {brand.last_reviewed_at && (
               <span>Last reviewed: {formatDate(brand.last_reviewed_at)}</span>
+            )}
+            {!brand.review_disabled && nextReviewDate && (
+              <span className={reviewDue ? 'text-orange-600 font-medium' : ''}>
+                Next review: {formatDate(nextReviewDate.toISOString())}
+              </span>
             )}
             {brand.review_disabled && (
               <span className="flex items-center gap-1 text-gray-400">

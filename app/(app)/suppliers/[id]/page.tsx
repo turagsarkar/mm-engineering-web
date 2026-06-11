@@ -2,16 +2,17 @@ import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { TopBar } from '@/components/layout/TopBar'
 import Link from 'next/link'
-import { Edit2, Mail, Phone, ArrowLeft } from 'lucide-react'
+import { Edit2, Phone, ArrowLeft } from 'lucide-react'
+import { CopyEmailButton } from '@/components/supplier/CopyEmailButton'
 
 interface Props {
   params: Promise<{ id: string }>
 }
 
 const TL_LABEL: Record<string, { label: string; dot: string; bg: string; text: string }> = {
-  green:  { label: 'Green — Primary',   dot: 'bg-green-500', bg: 'bg-green-50',  text: 'text-green-700' },
-  amber:  { label: 'Amber — Secondary', dot: 'bg-amber-400', bg: 'bg-amber-50',  text: 'text-amber-700' },
-  red:    { label: 'Red — Last resort', dot: 'bg-red-500',   bg: 'bg-red-50',    text: 'text-red-700' },
+  green:  { label: 'Green – Primary Supplier',          dot: 'bg-green-500', bg: 'bg-green-50',  text: 'text-green-700' },
+  amber:  { label: 'Amber – Alternative/Stock Supplier', dot: 'bg-amber-400', bg: 'bg-amber-50',  text: 'text-amber-700' },
+  red:    { label: 'Red – Do Not Use',                   dot: 'bg-red-500',   bg: 'bg-red-50',    text: 'text-red-700' },
 }
 
 export default async function SupplierDetailPage({ params }: Props) {
@@ -82,10 +83,9 @@ export default async function SupplierDetailPage({ params }: Props) {
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
               {supplier.email && (
                 <div>
-                  <dt className="text-xs font-medium text-gray-500 mb-0.5">Email</dt>
-                  <dd className="flex items-center gap-1.5 text-gray-900">
-                    <Mail className="h-3.5 w-3.5 text-gray-400" />
-                    <a href={`mailto:${supplier.email}`} className="hover:text-blue-600 hover:underline">{supplier.email}</a>
+                  <dt className="text-xs font-medium text-gray-500 mb-0.5">Email (click to copy)</dt>
+                  <dd className="text-sm">
+                    <CopyEmailButton email={supplier.email} />
                   </dd>
                 </div>
               )}

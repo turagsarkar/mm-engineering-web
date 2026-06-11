@@ -216,6 +216,10 @@ export interface Database {
           completed_at?: string | null
         }
         Update: {
+          brand_id?: string | null
+          message?: string
+          priority?: 'low' | 'normal' | 'high' | 'urgent'
+          due_date?: string | null
           is_active?: boolean
           completed_by?: string | null
           completed_at?: string | null

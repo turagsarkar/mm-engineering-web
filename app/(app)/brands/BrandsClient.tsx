@@ -6,11 +6,17 @@ import type { Brand } from '@/lib/types/database'
 
 type FilterMode = 'all' | 'ai_dnq' | 'review_due' | 'confirmed'
 
+function isReviewDue(b: Brand): boolean {
+  if (b.review_disabled) return false
+  if (!b.last_reviewed_at) return true
+  const next = new Date(b.last_reviewed_at)
+  next.setMonth(next.getMonth() + (b.review_interval_months || 6))
+  return next.getTime() <= Date.now()
+}
+
 export function BrandsClient({ brands }: { brands: Brand[] }) {
   const [query, setQuery] = useState('')
   const [filterMode, setFilterMode] = useState<FilterMode>('all')
-
-  const reviewCutoff = Date.now() - 180 * 24 * 60 * 60 * 1000
 
   const filtered = brands.filter(b => {
     const matchesSearch = !query.trim() ||
@@ -20,7 +26,7 @@ export function BrandsClient({ brands }: { brands: Brand[] }) {
     const matchesFilter =
       filterMode === 'all' ? true :
       filterMode === 'ai_dnq' ? b.ai_do_not_quote :
-      filterMode === 'review_due' ? (!b.last_reviewed_at || new Date(b.last_reviewed_at).getTime() < reviewCutoff) :
+      filterMode === 'review_due' ? isReviewDue(b) :
       filterMode === 'confirmed' ? b.confirmed_suppliers :
       true
 
@@ -28,7 +34,7 @@ export function BrandsClient({ brands }: { brands: Brand[] }) {
   })
 
   const aiDnqCount = brands.filter(b => b.ai_do_not_quote).length
-  const reviewDueCount = brands.filter(b => !b.last_reviewed_at || new Date(b.last_reviewed_at).getTime() < reviewCutoff).length
+  const reviewDueCount = brands.filter(isReviewDue).length
 
   const filterButtons: { id: FilterMode; label: string; count?: number; color?: string }[] = [
     { id: 'all', label: 'All', count: brands.length },
@@ -110,7 +116,7 @@ export function BrandsClient({ brands }: { brands: Brand[] }) {
       ) : (
         <div className="divide-y divide-gray-100">
           {filtered.map(brand => {
-            const reviewDue = !brand.last_reviewed_at || new Date(brand.last_reviewed_at).getTime() < reviewCutoff
+            const reviewDue = isReviewDue(brand)
             return (
               <Link
                 key={brand.id}

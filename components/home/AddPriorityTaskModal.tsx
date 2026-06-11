@@ -3,17 +3,18 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
 import { useUser } from '@/lib/hooks/useUser'
+import type { PriorityTask } from '@/lib/types/database'
 
 interface Props {
   open: boolean
   onClose: () => void
   onCreated: () => void
+  task?: PriorityTask | null   // when set, the modal edits an existing task
 }
 
-export function AddPriorityTaskModal({ open, onClose, onCreated }: Props) {
+export function AddPriorityTaskModal({ open, onClose, onCreated, task }: Props) {
   const { user, isAdmin } = useUser()
   const { toast } = useToast()
   const [brands, setBrands] = useState<{ id: string; name: string }[]>([])
@@ -22,26 +23,48 @@ export function AddPriorityTaskModal({ open, onClose, onCreated }: Props) {
   const [priority, setPriority] = useState('normal')
   const [loading, setLoading] = useState(false)
 
+  const isEdit = !!task
+
   useEffect(() => {
     if (!open) return
     createClient().from('brands').select('id,name').order('name').then(({ data }) => setBrands(data || []))
-  }, [open])
+    if (task) {
+      setBrandId(task.brand_id ?? '')
+      setMessage(task.message)
+      setPriority(task.priority)
+    } else {
+      setBrandId(''); setMessage(''); setPriority('normal')
+    }
+  }, [open, task])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!message.trim() || !isAdmin) return
     setLoading(true)
     const supabase = createClient()
-    const { error } = await supabase.from('priority_tasks').insert({
-      brand_id: brandId || null,
-      message: message.trim(),
-      set_by: user?.id,
-      priority: priority as 'low' | 'normal' | 'high' | 'urgent',
-      is_active: true,
-    })
+
+    let error
+    if (isEdit && task) {
+      const res = await supabase.from('priority_tasks').update({
+        brand_id: brandId || null,
+        message: message.trim(),
+        priority: priority as 'low' | 'normal' | 'high' | 'urgent',
+      }).eq('id', task.id)
+      error = res.error
+    } else {
+      const res = await supabase.from('priority_tasks').insert({
+        brand_id: brandId || null,
+        message: message.trim(),
+        set_by: user?.id,
+        priority: priority as 'low' | 'normal' | 'high' | 'urgent',
+        is_active: true,
+      })
+      error = res.error
+    }
+
     if (error) { toast(error.message, 'error') }
     else {
-      toast('Priority task added', 'success')
+      toast(isEdit ? 'Task updated' : 'Priority task added', 'success')
       setMessage(''); setBrandId(''); setPriority('normal')
       onCreated(); onClose()
     }
@@ -49,7 +72,7 @@ export function AddPriorityTaskModal({ open, onClose, onCreated }: Props) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Add priority task" size="sm">
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Edit priority task' : 'Add priority task'} size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium text-gray-700">Brand (optional)</label>
@@ -87,7 +110,7 @@ export function AddPriorityTaskModal({ open, onClose, onCreated }: Props) {
           </select>
         </div>
         <div className="flex gap-3 pt-2">
-          <Button type="submit" loading={loading}>Add task</Button>
+          <Button type="submit" loading={loading}>{isEdit ? 'Save changes' : 'Add task'}</Button>
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
         </div>
       </form>

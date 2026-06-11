@@ -83,7 +83,9 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
               value={supplier.traffic_light as TrafficLight}
               onChange={v => onUpdate(supplier.id, { traffic_light: v })}
             />
-            <span className="font-medium text-gray-900 text-sm flex-1 truncate">{supplier.name}</span>
+            <Link href={`/suppliers/${supplier.id}`} className="font-medium text-gray-900 text-sm flex-1 truncate hover:text-blue-600 transition-colors">
+              {supplier.name}
+            </Link>
             <AIApprovedToggle
               supplierId={supplier.id}
               value={supplier.ai_approved}
@@ -149,13 +151,15 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
           >
             <Edit2 className="h-4 w-4" />
           </Link>
-          <button
-            onClick={() => setConfirmDelete(true)}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-            title="Delete"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              title="Delete (admin only)"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
 

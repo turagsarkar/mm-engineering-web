@@ -26,6 +26,9 @@ export function LoginForm() {
       return
     }
 
+    // Record last login (fire and forget)
+    fetch('/api/auth/last-login', { method: 'POST' }).catch(() => {})
+
     router.push('/')
     router.refresh()
   }

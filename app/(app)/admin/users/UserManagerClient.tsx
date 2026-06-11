@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
-import { formatDate } from '@/lib/utils/format'
-import { UserPlus, Shield, User, ToggleLeft, ToggleRight } from 'lucide-react'
+import { formatDateTime } from '@/lib/utils/format'
+import { UserPlus, Shield, User, ToggleLeft, ToggleRight, Pencil } from 'lucide-react'
 import type { Profile } from '@/lib/types/database'
 
 interface Props {
@@ -25,6 +25,13 @@ export function UserManagerClient({ users: initial, currentUserId }: Props) {
   const [addRole, setAddRole] = useState<'admin' | 'member'>('member')
   const [addPassword, setAddPassword] = useState('')
   const [adding, setAdding] = useState(false)
+
+  // Edit user state
+  const [editUser, setEditUser] = useState<Profile | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editPassword, setEditPassword] = useState('')
+  const [saving, setSaving] = useState(false)
 
   async function handleAddUser(e: React.FormEvent) {
     e.preventDefault()
@@ -47,6 +54,42 @@ export function UserManagerClient({ users: initial, currentUserId }: Props) {
       router.refresh()
     }
     setAdding(false)
+  }
+
+  function openEdit(u: Profile) {
+    setEditUser(u)
+    setEditName(u.full_name || '')
+    setEditEmail(u.email)
+    setEditPassword('')
+  }
+
+  async function handleEditUser(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editUser) return
+    setSaving(true)
+
+    const res = await fetch('/api/admin/update-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: editUser.id,
+        email: editEmail.trim() !== editUser.email ? editEmail.trim() : undefined,
+        full_name: editName.trim(),
+        password: editPassword || undefined,
+      }),
+    })
+    const json = await res.json()
+
+    if (!res.ok) {
+      toast(json.error || 'Failed to update user', 'error')
+    } else {
+      setUsers(prev => prev.map(u => u.id === editUser.id
+        ? { ...u, full_name: editName.trim() || null, email: editEmail.trim() }
+        : u))
+      toast(editPassword ? 'User updated — new password set' : 'User updated', 'success')
+      setEditUser(null)
+    }
+    setSaving(false)
   }
 
   async function toggleRole(userId: string, current: 'admin' | 'member') {
@@ -112,7 +155,7 @@ export function UserManagerClient({ users: initial, currentUserId }: Props) {
                     </button>
                   </td>
                   <td className="px-4 py-4 text-xs text-gray-500 hidden md:table-cell">
-                    {formatDate(u.last_login)}
+                    {u.last_login ? formatDateTime(u.last_login) : 'Never'}
                   </td>
                   <td className="px-4 py-4">
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${u.is_active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
@@ -120,15 +163,24 @@ export function UserManagerClient({ users: initial, currentUserId }: Props) {
                     </span>
                   </td>
                   <td className="px-4 py-4">
-                    {u.id !== currentUserId && (
+                    <div className="flex items-center gap-2">
                       <button
-                        onClick={() => toggleActive(u.id, u.is_active)}
-                        className="text-gray-300 hover:text-gray-500 transition-colors"
-                        title={u.is_active ? 'Deactivate' : 'Activate'}
+                        onClick={() => openEdit(u)}
+                        className="text-gray-300 hover:text-blue-600 transition-colors"
+                        title="Edit user (name, email, password)"
                       >
-                        {u.is_active ? <ToggleRight className="h-5 w-5 text-green-500" /> : <ToggleLeft className="h-5 w-5" />}
+                        <Pencil className="h-4 w-4" />
                       </button>
-                    )}
+                      {u.id !== currentUserId && (
+                        <button
+                          onClick={() => toggleActive(u.id, u.is_active)}
+                          className="text-gray-300 hover:text-gray-500 transition-colors"
+                          title={u.is_active ? 'Deactivate' : 'Activate'}
+                        >
+                          {u.is_active ? <ToggleRight className="h-5 w-5 text-green-500" /> : <ToggleLeft className="h-5 w-5" />}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -137,6 +189,7 @@ export function UserManagerClient({ users: initial, currentUserId }: Props) {
         </div>
       </div>
 
+      {/* Add user modal */}
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add team member" size="sm">
         <form onSubmit={handleAddUser} className="space-y-4">
           <Input id="ae" label="Email address *" type="email" value={addEmail} onChange={e => setAddEmail(e.target.value)} required />
@@ -156,6 +209,27 @@ export function UserManagerClient({ users: initial, currentUserId }: Props) {
           <div className="flex gap-3 pt-2">
             <Button type="submit" loading={adding}>Create user</Button>
             <Button type="button" variant="secondary" onClick={() => setShowAdd(false)}>Cancel</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit user modal */}
+      <Modal open={!!editUser} onClose={() => setEditUser(null)} title={`Edit — ${editUser?.full_name || editUser?.email || ''}`} size="sm">
+        <form onSubmit={handleEditUser} className="space-y-4">
+          <Input id="en" label="Full name" value={editName} onChange={e => setEditName(e.target.value)} />
+          <Input id="ee" label="Email address" type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} required />
+          <Input
+            id="ep"
+            label="New password (leave blank to keep current)"
+            type="password"
+            value={editPassword}
+            onChange={e => setEditPassword(e.target.value)}
+            minLength={8}
+            placeholder="Min 8 characters"
+          />
+          <div className="flex gap-3 pt-2">
+            <Button type="submit" loading={saving}>Save changes</Button>
+            <Button type="button" variant="secondary" onClick={() => setEditUser(null)}>Cancel</Button>
           </div>
         </form>
       </Modal>

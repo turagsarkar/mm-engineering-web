@@ -49,8 +49,8 @@ export function AIApprovedToggle({ supplierId, value, onChange }: AIApprovedTogg
       className={cn(
         'inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded transition-colors',
         value
-          ? 'bg-blue-50 text-blue-700 border border-blue-200'
-          : 'bg-gray-50 text-gray-500 border border-gray-200',
+          ? 'bg-green-50 text-green-700 border border-green-300'
+          : 'bg-gray-100 text-gray-400 border border-gray-200',
         isAdmin && !loading && 'hover:opacity-80 cursor-pointer',
         !isAdmin && 'cursor-default',
         loading && 'opacity-50'
