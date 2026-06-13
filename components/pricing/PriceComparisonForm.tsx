@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { useToast } from '@/components/ui/Toast'
@@ -35,7 +36,10 @@ export function PriceComparisonForm() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    createClient().from('brands').select('*').order('name').range(0, 4999).then(({ data }) => setBrands(data || []))
+    const supabase = createClient()
+    fetchAllRows<Brand>((from, to) =>
+      supabase.from('brands').select('*').order('name').range(from, to)
+    ).then(setBrands)
   }, [])
 
   useEffect(() => {

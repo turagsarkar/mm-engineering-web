@@ -2,7 +2,9 @@ import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { TopBar } from '@/components/layout/TopBar'
+import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { BrandsClient } from './BrandsClient'
+import type { Brand } from '@/lib/types/database'
 
 interface Props {
   searchParams: Promise<{ filter?: string }>
@@ -12,20 +14,16 @@ export default async function BrandsPage({ searchParams }: Props) {
   const { filter } = await searchParams
   const supabase = await createClient()
 
-  let query = supabase
-    .from('brands')
-    .select('*')
-    .order('name')
-    .range(0, 4999)
+  // Fetch ALL brands in 1000-row chunks (PostgREST caps each response at 1000).
+  // BrandsClient handles filtering/search on the full set.
+  const brands = await fetchAllRows<Brand>((from, to) =>
+    supabase.from('brands').select('*').order('name').range(from, to)
+  )
 
-  if (filter === 'ai_do_not_quote') query = query.eq('ai_do_not_quote', true)
-  if (filter === 'confirmed') query = query.eq('confirmed_suppliers', true)
-  if (filter === 'review_due') {
-    const cutoff = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()
-    query = query.or(`last_reviewed_at.is.null,last_reviewed_at.lt.${cutoff}`)
-  }
-
-  const { data: brands } = await query
+  const initialFilter =
+    filter === 'ai_do_not_quote' ? 'ai_dnq' :
+    filter === 'confirmed' ? 'confirmed' :
+    filter === 'review_due' ? 'review_due' : 'all'
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -43,30 +41,8 @@ export default async function BrandsPage({ searchParams }: Props) {
             </Link>
           </div>
 
-          {/* Filters */}
-          <div className="flex gap-2 mb-4 flex-wrap">
-            {[
-              { label: 'All', value: '' },
-              { label: 'Confirmed', value: 'confirmed' },
-              { label: 'AI Do Not Quote', value: 'ai_do_not_quote' },
-              { label: 'Review Due', value: 'review_due' },
-            ].map(f => (
-              <Link
-                key={f.value}
-                href={f.value ? `/brands?filter=${f.value}` : '/brands'}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                  (filter ?? '') === f.value
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                {f.label}
-              </Link>
-            ))}
-          </div>
-
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <BrandsClient brands={brands ?? []} />
+            <BrandsClient brands={brands ?? []} initialFilter={initialFilter} />
           </div>
         </div>
       </div>

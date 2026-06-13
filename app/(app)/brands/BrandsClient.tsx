@@ -14,9 +14,9 @@ function isReviewDue(b: Brand): boolean {
   return next.getTime() <= Date.now()
 }
 
-export function BrandsClient({ brands }: { brands: Brand[] }) {
+export function BrandsClient({ brands, initialFilter = 'all' }: { brands: Brand[]; initialFilter?: FilterMode }) {
   const [query, setQuery] = useState('')
-  const [filterMode, setFilterMode] = useState<FilterMode>('all')
+  const [filterMode, setFilterMode] = useState<FilterMode>(initialFilter)
 
   const filtered = brands.filter(b => {
     const matchesSearch = !query.trim() ||

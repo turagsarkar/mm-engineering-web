@@ -33,6 +33,7 @@ export function ActivityPanel() {
     let q = supabase
       .from('activity_log')
       .select('id, action_type, entity_type, entity_name, created_at, profiles(full_name, email)')
+      .neq('action_type', 'pending_supplier')
       .order('created_at', { ascending: false })
       .limit(30)
     if (filterUser) q = q.eq('user_id', filterUser)

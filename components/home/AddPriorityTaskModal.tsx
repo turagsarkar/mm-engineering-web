@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { useToast } from '@/components/ui/Toast'
@@ -27,7 +28,10 @@ export function AddPriorityTaskModal({ open, onClose, onCreated, task }: Props) 
 
   useEffect(() => {
     if (!open) return
-    createClient().from('brands').select('id,name').order('name').range(0, 4999).then(({ data }) => setBrands(data || []))
+    const supabase = createClient()
+    fetchAllRows<{ id: string; name: string }>((from, to) =>
+      supabase.from('brands').select('id,name').order('name').range(from, to)
+    ).then(setBrands)
     if (task) {
       setBrandId(task.brand_id ?? '')
       setMessage(task.message)
