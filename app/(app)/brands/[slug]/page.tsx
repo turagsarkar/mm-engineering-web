@@ -24,6 +24,7 @@ export default async function BrandDetailPage({ params }: Props) {
       .from('suppliers')
       .select('*')
       .eq('brand_id', brand.id)
+      .neq('supplier_status', 'pending')
       .order('priority_rank', { ascending: true })
       .order('name', { ascending: true }),
     supabase
@@ -34,13 +35,16 @@ export default async function BrandDetailPage({ params }: Props) {
       .limit(50),
   ])
 
+  // Comparisons awaiting admin approval stay hidden
+  const visibleComparisons = (priceComparisons ?? []).filter(p => p.description !== 'PENDING_APPROVAL')
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <TopBar title={brand.name} />
       <BrandDetailClient
         brand={brand}
         initialSuppliers={suppliers ?? []}
-        initialPriceComparisons={priceComparisons ?? []}
+        initialPriceComparisons={visibleComparisons}
       />
     </div>
   )

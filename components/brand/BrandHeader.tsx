@@ -20,9 +20,6 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
   const { toast } = useToast()
   const [confirmedLoading, setConfirmedLoading] = useState(false)
   const [showSetDate, setShowSetDate] = useState(false)
-  const [reviewDate, setReviewDate] = useState(
-    brand.last_reviewed_at ? brand.last_reviewed_at.split('T')[0] : ''
-  )
 
   // Calendar-accurate: next review = last reviewed + interval months
   function addMonths(date: Date, months: number) {
@@ -33,6 +30,10 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
   const nextReviewDate = brand.last_reviewed_at
     ? addMonths(new Date(brand.last_reviewed_at), brand.review_interval_months)
     : null
+
+  const [reviewDate, setReviewDate] = useState(
+    nextReviewDate ? nextReviewDate.toISOString().split('T')[0] : ''
+  )
   const reviewDue = !brand.review_disabled &&
     (!nextReviewDate || nextReviewDate.getTime() <= Date.now())
 
@@ -82,11 +83,13 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
     }
   }
 
+  // The date picked is the NEXT review date; we back-compute last_reviewed_at
+  // so "next review = last reviewed + interval" lands exactly on the chosen day.
   async function saveReviewDate() {
     if (!reviewDate) return
-    const iso = new Date(reviewDate).toISOString()
-    if (await patch({ last_reviewed_at: iso, reviewed_by: user?.id ?? null })) {
-      toast('Review date updated', 'success')
+    const lastReviewed = addMonths(new Date(reviewDate), -brand.review_interval_months)
+    if (await patch({ last_reviewed_at: lastReviewed.toISOString(), reviewed_by: user?.id ?? null })) {
+      toast(`Next review set to ${formatDate(new Date(reviewDate).toISOString())}`, 'success')
       setShowSetDate(false)
     }
   }
@@ -201,7 +204,7 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
               className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 border border-orange-300 text-orange-700 bg-white rounded-lg hover:bg-orange-50 transition-colors"
             >
               <Calendar className="h-3.5 w-3.5" />
-              Set review date
+              Set next review date
             </button>
             <button
               onClick={toggleReviewDisabled}
@@ -238,7 +241,7 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
             className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
           >
             <Calendar className="h-3.5 w-3.5" />
-            Change review date
+            Change next review date
           </button>
           <button
             onClick={toggleReviewDisabled}

@@ -16,6 +16,7 @@ export default async function BrandsPage({ searchParams }: Props) {
     .from('brands')
     .select('*')
     .order('name')
+    .range(0, 4999)
 
   if (filter === 'ai_do_not_quote') query = query.eq('ai_do_not_quote', true)
   if (filter === 'confirmed') query = query.eq('confirmed_suppliers', true)

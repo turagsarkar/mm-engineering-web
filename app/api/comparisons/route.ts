@@ -18,6 +18,37 @@ async function requireUser() {
   return { user, isAdmin: profile?.role === 'admin' }
 }
 
+// POST: add a new line to an EXISTING comparison — supports suppliers that
+// responded later, including ones not in the system (free-text name).
+export async function POST(request: Request) {
+  const { user } = await requireUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+
+  const { comparison_id, supplier_id, supplier_name, supplier_email, price, lead_time, response_time, notes } = await request.json()
+  if (!comparison_id || !supplier_name?.trim()) {
+    return NextResponse.json({ error: 'comparison_id and supplier_name required' }, { status: 400 })
+  }
+
+  const admin = adminClient()
+  const { data: comp } = await admin.from('price_comparisons').select('id').eq('id', comparison_id).single()
+  if (!comp) return NextResponse.json({ error: 'Comparison not found' }, { status: 404 })
+
+  const p = price !== undefined && price !== null && price !== '' ? parseFloat(price) : null
+  const { data: line, error } = await admin.from('price_comparison_lines').insert({
+    comparison_id,
+    supplier_id: supplier_id || null,
+    supplier_name: supplier_name.trim(),
+    supplier_email: supplier_email || null,
+    price: p !== null && !isNaN(p) ? p : null,
+    lead_time: lead_time || null,
+    response_time: response_time || null,
+    notes: notes || null,
+  }).select('id').single()
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+
+  return NextResponse.json({ success: true, line_id: line.id })
+}
+
 // PATCH: edit a price comparison line (any signed-in user)
 export async function PATCH(request: Request) {
   const { user } = await requireUser()

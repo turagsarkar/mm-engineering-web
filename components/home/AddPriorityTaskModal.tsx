@@ -27,7 +27,7 @@ export function AddPriorityTaskModal({ open, onClose, onCreated, task }: Props) 
 
   useEffect(() => {
     if (!open) return
-    createClient().from('brands').select('id,name').order('name').then(({ data }) => setBrands(data || []))
+    createClient().from('brands').select('id,name').order('name').range(0, 4999).then(({ data }) => setBrands(data || []))
     if (task) {
       setBrandId(task.brand_id ?? '')
       setMessage(task.message)

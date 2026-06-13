@@ -28,7 +28,7 @@ interface SupplierFormProps {
 export function SupplierForm({ supplier, brandId, brandSlug, onSuccess }: SupplierFormProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const { user } = useUser()
+  const { user, isAdmin } = useUser()
   const isEdit = !!supplier
   const bid = supplier?.brand_id ?? brandId ?? ''
 
@@ -64,6 +64,20 @@ export function SupplierForm({ supplier, brandId, brandSlug, onSuccess }: Suppli
     setLoading(true)
 
     const supabase = createClient()
+
+    // New entries under a brand with an open priority task need admin
+    // approval first (members only — admin entries go straight in).
+    let needsApproval = false
+    if (!isEdit && !isAdmin) {
+      const { data: openTasks } = await supabase
+        .from('priority_tasks')
+        .select('id')
+        .eq('brand_id', bid)
+        .eq('is_active', true)
+        .limit(1)
+      needsApproval = !!openTasks && openTasks.length > 0
+    }
+
     const payload = {
       name: name.trim(),
       email: email.trim() || null,
@@ -73,14 +87,15 @@ export function SupplierForm({ supplier, brandId, brandSlug, onSuccess }: Suppli
       po_number: poNumber.trim() || null,
       traffic_light: trafficLight,
       priority_rank: TL_RANK[trafficLight],
-      supplier_status: 'active',
+      supplier_status: needsApproval ? 'pending' : 'active',
     }
 
     let error
     let entityId = supplier?.id
 
     if (isEdit && supplier) {
-      const res = await supabase.from('suppliers').update(payload).eq('id', supplier.id)
+      const { supplier_status: _ignored, ...editPayload } = payload
+      const res = await supabase.from('suppliers').update(editPayload).eq('id', supplier.id)
       error = res.error
     } else {
       const res = await supabase.from('suppliers').insert({
@@ -124,15 +139,24 @@ export function SupplierForm({ supplier, brandId, brandSlug, onSuccess }: Suppli
       }
     }
 
-    await supabase.from('activity_log').insert({
-      user_id: user?.id,
-      action_type: isEdit ? 'supplier_edited' : 'supplier_added',
-      entity_type: 'supplier',
-      entity_id: entityId,
-      entity_name: name.trim(),
-    })
+    // Points are only logged for entries that go straight in; pending
+    // entries are logged by the approval API when an admin approves.
+    if (!needsApproval) {
+      await supabase.from('activity_log').insert({
+        user_id: user?.id,
+        action_type: isEdit ? 'supplier_edited' : 'supplier_added',
+        entity_type: 'supplier',
+        entity_id: entityId,
+        entity_name: name.trim(),
+      })
+    }
 
-    toast(isEdit ? 'Supplier updated' : 'Supplier added', 'success')
+    toast(
+      needsApproval
+        ? 'Submitted — this brand has an open priority task, so an admin must approve it first'
+        : isEdit ? 'Supplier updated' : 'Supplier added',
+      'success'
+    )
     if (onSuccess) { onSuccess(); return }
     if (brandSlug) { router.push(`/brands/${brandSlug}`); router.refresh(); return }
     router.back()

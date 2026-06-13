@@ -1,7 +1,7 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Search, X, ChevronRight, Bot } from 'lucide-react'
+import { Search, X, ChevronRight, ChevronLeft, Bot } from 'lucide-react'
 
 interface SupplierRow {
   id: string
@@ -18,9 +18,12 @@ const TL_DOT: Record<string, string> = {
   red: 'bg-red-500',
 }
 
+const PAGE_SIZE = 100
+
 export function AdminSuppliersClient({ suppliers }: { suppliers: SupplierRow[] }) {
   const [query, setQuery] = useState('')
   const [tlFilter, setTlFilter] = useState('')
+  const [page, setPage] = useState(1)
 
   const filtered = suppliers.filter(s => {
     const matchQ = !query.trim() ||
@@ -30,6 +33,11 @@ export function AdminSuppliersClient({ suppliers }: { suppliers: SupplierRow[] }
     const matchTl = !tlFilter || (s.traffic_light ?? 'green') === tlFilter
     return matchQ && matchTl
   })
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  useEffect(() => { setPage(1) }, [query, tlFilter])
+  const safePage = Math.min(page, totalPages)
+  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   return (
     <div className="space-y-4">
@@ -66,13 +74,18 @@ export function AdminSuppliersClient({ suppliers }: { suppliers: SupplierRow[] }
         </div>
       </div>
 
-      <p className="text-xs text-gray-400">{filtered.length} supplier{filtered.length !== 1 ? 's' : ''}</p>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-400">
+          {filtered.length} supplier{filtered.length !== 1 ? 's' : ''}
+          {totalPages > 1 && ` — showing ${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filtered.length)}`}
+        </p>
+      </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-50">
         {filtered.length === 0 ? (
           <p className="px-6 py-8 text-sm text-gray-400 text-center">No suppliers match</p>
         ) : (
-          filtered.slice(0, 500).map(s => (
+          pageRows.map(s => (
             <Link
               key={s.id}
               href={`/suppliers/${s.id}`}
@@ -94,10 +107,44 @@ export function AdminSuppliersClient({ suppliers }: { suppliers: SupplierRow[] }
             </Link>
           ))
         )}
-        {filtered.length > 500 && (
-          <p className="px-4 py-2 text-xs text-gray-400 text-center">Showing first 500 — refine your search to see more</p>
-        )}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-1">
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={safePage <= 1}
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" /> Prev
+          </button>
+          {Array.from({ length: totalPages }, (_, i) => i + 1)
+            .filter(n => n === 1 || n === totalPages || Math.abs(n - safePage) <= 2)
+            .map((n, i, arr) => (
+              <span key={n} className="flex items-center gap-2">
+                {i > 0 && arr[i - 1] !== n - 1 && <span className="text-gray-300 text-xs">…</span>}
+                <button
+                  onClick={() => setPage(n)}
+                  className={`text-xs w-8 h-8 rounded-lg border transition-colors ${
+                    n === safePage
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {n}
+                </button>
+              </span>
+            ))}
+          <button
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={safePage >= totalPages}
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors"
+          >
+            Next <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -96,9 +96,9 @@ export function BrandDetailClient({ brand: initialBrand, initialSuppliers, initi
   }
 
   const tabList: { id: Tab; label: string; dot?: string; count: number }[] = [
-    { id: 'green', label: 'Green – Primary', dot: 'bg-green-500', count: greenSuppliers.length },
-    { id: 'amber', label: 'Amber – Alternative/Stock', dot: 'bg-amber-400', count: amberSuppliers.length },
-    { id: 'red', label: 'Red – Do Not Use', dot: 'bg-red-500', count: redSuppliers.length },
+    { id: 'green', label: 'Primary', dot: 'bg-green-500', count: greenSuppliers.length },
+    { id: 'amber', label: 'Alternative/Stock', dot: 'bg-amber-400', count: amberSuppliers.length },
+    { id: 'red', label: 'Do Not Use', dot: 'bg-red-500', count: redSuppliers.length },
     { id: 'prices', label: 'Price Comparisons', count: priceComparisons.length },
   ]
 
@@ -142,9 +142,9 @@ export function BrandDetailClient({ brand: initialBrand, initialSuppliers, initi
       {/* Traffic light key */}
       <div className="bg-white rounded-xl border border-gray-200 px-4 py-2.5 flex items-center gap-4 flex-wrap text-xs text-gray-600">
         <span className="font-semibold text-gray-700">Key:</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" /> Green – Primary Supplier</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> Amber – Alternative/Stock Supplier</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Red – Do Not Use</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" /> Primary Supplier</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> Alternative/Stock Supplier</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Do Not Use</span>
       </div>
 
       {/* Tabs */}
@@ -170,9 +170,9 @@ export function BrandDetailClient({ brand: initialBrand, initialSuppliers, initi
         ))}
       </div>
 
-      {activeTab === 'green' && renderSupplierList(greenSuppliers, 'No green (primary) suppliers yet')}
-      {activeTab === 'amber' && renderSupplierList(amberSuppliers, 'No amber (alternative/stock) suppliers')}
-      {activeTab === 'red' && renderSupplierList(redSuppliers, 'No red (do not use) suppliers')}
+      {activeTab === 'green' && renderSupplierList(greenSuppliers, 'No primary suppliers yet')}
+      {activeTab === 'amber' && renderSupplierList(amberSuppliers, 'No alternative/stock suppliers')}
+      {activeTab === 'red' && renderSupplierList(redSuppliers, 'No suppliers marked Do Not Use')}
 
       {activeTab === 'prices' && (
         <div className="space-y-3">
@@ -200,6 +200,7 @@ export function BrandDetailClient({ brand: initialBrand, initialSuppliers, initi
                   <ComparisonRow
                     key={pc.id}
                     comparison={pc}
+                    brandSuppliers={suppliers}
                     onDeleted={id => setPriceComparisons(prev => prev.filter(p => p.id !== id))}
                   />
                 ))}
@@ -221,8 +222,9 @@ interface ComparisonLine {
   notes: string | null
 }
 
-function ComparisonRow({ comparison, onDeleted }: {
+function ComparisonRow({ comparison, brandSuppliers, onDeleted }: {
   comparison: PriceComparisonHeader
+  brandSuppliers: Supplier[]
   onDeleted: (id: string) => void
 }) {
   const { isAdmin } = useUser()
@@ -234,6 +236,50 @@ function ComparisonRow({ comparison, onDeleted }: {
   const [editingLine, setEditingLine] = useState<string | null>(null)
   const [draft, setDraft] = useState({ price: '', lead_time: '', notes: '' })
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // Add-a-line-later state (#41): existing supplier or free-text name
+  const [showAddLine, setShowAddLine] = useState(false)
+  const [addSupplierId, setAddSupplierId] = useState('')
+  const [addName, setAddName] = useState('')
+  const [addLine, setAddLine] = useState({ price: '', lead_time: '', notes: '' })
+  const [addingLine, setAddingLine] = useState(false)
+
+  async function submitAddLine(e: React.FormEvent) {
+    e.preventDefault()
+    const chosen = brandSuppliers.find(s => s.id === addSupplierId)
+    const name = chosen ? chosen.name : addName.trim()
+    if (!name) { toast('Choose a supplier or type a name', 'error'); return }
+    setAddingLine(true)
+    const res = await fetch('/api/comparisons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        comparison_id: comparison.id,
+        supplier_id: chosen?.id || null,
+        supplier_name: name,
+        supplier_email: chosen?.email || null,
+        price: addLine.price,
+        lead_time: addLine.lead_time,
+        notes: addLine.notes,
+      }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      toast(json.error || 'Failed to add price', 'error')
+    } else {
+      setLines(prev => [...prev, {
+        id: json.line_id,
+        supplier_name: name,
+        price: addLine.price && !isNaN(parseFloat(addLine.price)) ? parseFloat(addLine.price) : null,
+        lead_time: addLine.lead_time || null,
+        response_time: null,
+        notes: addLine.notes || null,
+      }])
+      setShowAddLine(false)
+      setAddSupplierId(''); setAddName(''); setAddLine({ price: '', lead_time: '', notes: '' })
+      toast('Price added to comparison', 'success')
+    }
+    setAddingLine(false)
+  }
 
   async function loadLines() {
     if (loaded) { setOpen(!open); return }
@@ -328,8 +374,9 @@ function ComparisonRow({ comparison, onDeleted }: {
         )}
       </div>
 
-      {open && lines.length > 0 && (
+      {open && (
         <div className="px-4 pb-3 bg-gray-50 border-t border-gray-100">
+          {lines.length > 0 && (
           <table className="w-full text-xs mt-2">
             <thead>
               <tr className="text-gray-500">
@@ -386,6 +433,58 @@ function ComparisonRow({ comparison, onDeleted }: {
               ))}
             </tbody>
           </table>
+          )}
+
+          {/* Add a price later — supplier from this brand or one not in the system */}
+          {!showAddLine ? (
+            <button
+              onClick={() => setShowAddLine(true)}
+              className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add price from another supplier
+            </button>
+          ) : (
+            <form onSubmit={submitAddLine} className="mt-2 p-3 bg-white border border-gray-200 rounded-lg space-y-2">
+              <div className="flex gap-2 flex-wrap">
+                <select
+                  value={addSupplierId}
+                  onChange={e => setAddSupplierId(e.target.value)}
+                  className="text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">Other supplier (type name below)</option>
+                  {brandSuppliers.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                {!addSupplierId && (
+                  <input
+                    value={addName}
+                    onChange={e => setAddName(e.target.value)}
+                    placeholder="Supplier name (not in system)"
+                    className="text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 flex-1 min-w-[160px]"
+                  />
+                )}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <input value={addLine.price} onChange={e => setAddLine(d => ({ ...d, price: e.target.value }))}
+                  placeholder="Price" className="w-24 text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                <input value={addLine.lead_time} onChange={e => setAddLine(d => ({ ...d, lead_time: e.target.value }))}
+                  placeholder="Lead time" className="w-28 text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                <input value={addLine.notes} onChange={e => setAddLine(d => ({ ...d, notes: e.target.value }))}
+                  placeholder="Notes" className="flex-1 min-w-[120px] text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+              <div className="flex gap-2">
+                <button type="submit" disabled={addingLine}
+                  className="text-xs font-medium px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
+                  {addingLine ? 'Adding…' : 'Add price'}
+                </button>
+                <button type="button" onClick={() => setShowAddLine(false)}
+                  className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded-md hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       )}
     </div>

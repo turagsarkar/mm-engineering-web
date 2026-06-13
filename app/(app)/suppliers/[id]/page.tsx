@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { TopBar } from '@/components/layout/TopBar'
 import Link from 'next/link'
-import { Edit2, Phone, ArrowLeft } from 'lucide-react'
+import { Edit2, User, ArrowLeft, StickyNote } from 'lucide-react'
 import { CopyEmailButton } from '@/components/supplier/CopyEmailButton'
 
 interface Props {
@@ -91,9 +91,9 @@ export default async function SupplierDetailPage({ params }: Props) {
               )}
               {supplier.contact_name && (
                 <div>
-                  <dt className="text-xs font-medium text-gray-500 mb-0.5">Contact</dt>
+                  <dt className="text-xs font-medium text-gray-500 mb-0.5">Contact name</dt>
                   <dd className="flex items-center gap-1.5 text-gray-900">
-                    <Phone className="h-3.5 w-3.5 text-gray-400" />
+                    <User className="h-3.5 w-3.5 text-gray-400" />
                     {supplier.contact_name}
                   </dd>
                 </div>
@@ -143,19 +143,17 @@ export default async function SupplierDetailPage({ params }: Props) {
             </dl>
           </div>
 
-          {/* Notes */}
+          {/* Notes — distinct styling so they stand out from the details */}
           {notes && notes.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <h3 className="text-sm font-semibold text-gray-900">Notes</h3>
+            <div className="bg-yellow-50 rounded-xl border-2 border-yellow-300 overflow-hidden">
+              <div className="px-4 py-3 border-b border-yellow-200 flex items-center gap-2">
+                <StickyNote className="h-4 w-4 text-yellow-600" />
+                <h3 className="text-sm font-bold text-yellow-900">Notes</h3>
               </div>
-              <div className="divide-y divide-gray-100">
+              <div className="divide-y divide-yellow-200">
                 {notes.map(note => (
                   <div key={note.id} className="px-4 py-3">
-                    {note.note_type && note.note_type !== 'general' && (
-                      <span className="text-xs font-medium text-blue-600 capitalize mb-1 block">{note.note_type}</span>
-                    )}
-                    <p className="text-sm text-gray-800">{note.note_text}</p>
+                    <p className="text-sm font-medium text-yellow-900">{note.note_text}</p>
                   </div>
                 ))}
               </div>

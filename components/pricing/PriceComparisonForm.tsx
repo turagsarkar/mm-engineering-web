@@ -24,7 +24,7 @@ interface ExistingLine {
 }
 
 export function PriceComparisonForm() {
-  const { user } = useUser()
+  const { user, isAdmin } = useUser()
   const { toast } = useToast()
   const [partNumber, setPartNumber] = useState('')
   const [brands, setBrands] = useState<Brand[]>([])
@@ -35,7 +35,7 @@ export function PriceComparisonForm() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    createClient().from('brands').select('*').order('name').then(({ data }) => setBrands(data || []))
+    createClient().from('brands').select('*').order('name').range(0, 4999).then(({ data }) => setBrands(data || []))
   }, [])
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export function PriceComparisonForm() {
       .select(`
         id, supplier_name, price, lead_time, response_time, notes, created_at,
         price_comparisons!inner(
-          created_by, created_at,
+          created_by, created_at, description,
           profiles(full_name, email)
         )
       `)
@@ -72,7 +72,12 @@ export function PriceComparisonForm() {
       .eq('price_comparisons.part_number', partNumber.trim())
       .order('created_at', { ascending: false })
       .limit(10)
-      .then(({ data }) => setExisting((data as ExistingLine[]) || []))
+      .then(({ data }) => {
+        // Hide lines belonging to comparisons still pending admin approval
+        const rows = ((data as (ExistingLine & { price_comparisons: { description?: string | null } | null })[]) || [])
+          .filter(l => l.price_comparisons?.description !== 'PENDING_APPROVAL')
+        setExisting(rows as ExistingLine[])
+      })
   }, [partNumber, selectedBrandId])
 
   function updateRow(supplierId: string, field: string, value: string) {
@@ -92,9 +97,27 @@ export function PriceComparisonForm() {
     setLoading(true)
     const supabase = createClient()
 
+    // Comparisons under a brand with an open priority task need admin
+    // approval first (members only).
+    let needsApproval = false
+    if (!isAdmin) {
+      const { data: openTasks } = await supabase
+        .from('priority_tasks')
+        .select('id')
+        .eq('brand_id', selectedBrandId)
+        .eq('is_active', true)
+        .limit(1)
+      needsApproval = !!openTasks && openTasks.length > 0
+    }
+
     const { data: header, error: headerErr } = await supabase
       .from('price_comparisons')
-      .insert({ brand_id: selectedBrandId, part_number: partNumber.trim(), created_by: user?.id })
+      .insert({
+        brand_id: selectedBrandId,
+        part_number: partNumber.trim(),
+        created_by: user?.id,
+        description: needsApproval ? 'PENDING_APPROVAL' : null,
+      })
       .select('id')
       .single()
 
@@ -119,16 +142,24 @@ export function PriceComparisonForm() {
     if (linesErr) {
       toast(linesErr.message, 'error')
     } else {
-      // Log 2 points for price comparison
-      const brandName = brands.find(b => b.id === selectedBrandId)?.name
-      await supabase.from('activity_log').insert({
-        user_id: user?.id,
-        action_type: 'price_comparison_added',
-        entity_type: 'price_comparison',
-        entity_id: header.id,
-        entity_name: `${partNumber.trim()}${brandName ? ` — ${brandName}` : ''}`,
-      })
-      toast('Prices saved', 'success')
+      // Points only when no approval is needed; the approval API logs
+      // them when an admin approves a pending comparison.
+      if (!needsApproval) {
+        const brandName = brands.find(b => b.id === selectedBrandId)?.name
+        await supabase.from('activity_log').insert({
+          user_id: user?.id,
+          action_type: 'price_comparison_added',
+          entity_type: 'price_comparison',
+          entity_id: header.id,
+          entity_name: `${partNumber.trim()}${brandName ? ` — ${brandName}` : ''}`,
+        })
+      }
+      toast(
+        needsApproval
+          ? 'Submitted — this brand has an open priority task, so an admin must approve it first'
+          : 'Prices saved',
+        'success'
+      )
       setPartNumber('')
       setSelectedBrandId('')
       setSuppliers([])

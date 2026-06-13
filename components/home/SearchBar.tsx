@@ -43,6 +43,7 @@ export function SearchBar({ compact }: SearchBarProps) {
         .from('suppliers')
         .select('id,name,email,brand_id,brands(name,slug)')
         .ilike('name', term)
+        .neq('supplier_status', 'pending')
         .limit(20),
     ]).catch(() => [{ data: [] }, { data: [] }])
 

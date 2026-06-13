@@ -3,11 +3,10 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical, Mail, Phone, StickyNote, Edit2, Trash2, ChevronDown } from 'lucide-react'
+import { GripVertical, Mail, User, Edit2, Trash2, StickyNote } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { TrafficLightToggle } from '@/components/supplier/TrafficLightToggle'
 import { AIApprovedToggle } from '@/components/supplier/AIApprovedToggle'
-import { SupplierNotesPanel } from '@/components/supplier/SupplierNotesPanel'
 import { Modal } from '@/components/ui/Modal'
 import { useUser } from '@/lib/hooks/useUser'
 import { useToast } from '@/components/ui/Toast'
@@ -23,10 +22,10 @@ interface SupplierCardProps {
 export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps) {
   const { isAdmin } = useUser()
   const { toast } = useToast()
-  const [showNotes, setShowNotes] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [latestNote, setLatestNote] = useState<string | null>(null)
 
+  // Notes come only from the Add/Edit Supplier form (note_type 'general')
   useEffect(() => {
     createClient()
       .from('supplier_notes')
@@ -111,8 +110,8 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
               </button>
             )}
             {supplier.contact_name && (
-              <span className="flex items-center gap-1">
-                <Phone className="h-3 w-3" />
+              <span className="flex items-center gap-1" title="Contact name">
+                <User className="h-3 w-3" />
                 {supplier.contact_name}
               </span>
             )}
@@ -127,27 +126,21 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
             )}
           </div>
 
-          {/* Row 3: notes preview (shown inline if exists) */}
+          {/* Notes — styled to stand out from the other details */}
           {latestNote && (
-            <p className="text-xs text-gray-500 mt-1.5 bg-gray-50 rounded px-2 py-1 border border-gray-100 line-clamp-2">
-              {latestNote}
-            </p>
+            <div className="flex items-start gap-1.5 mt-2 bg-yellow-50 border-l-4 border-yellow-400 rounded-r-md px-2.5 py-1.5">
+              <StickyNote className="h-3.5 w-3.5 text-yellow-600 shrink-0 mt-0.5" />
+              <p className="text-xs font-medium text-yellow-900">{latestNote}</p>
+            </div>
           )}
         </div>
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => setShowNotes(!showNotes)}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-            title="All notes"
-          >
-            <StickyNote className="h-4 w-4" />
-          </button>
           <Link
             href={`/suppliers/${supplier.id}/edit`}
             className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-            title="Edit"
+            title="Edit (notes are edited here)"
           >
             <Edit2 className="h-4 w-4" />
           </Link>
@@ -162,13 +155,6 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
           )}
         </div>
       </div>
-
-      {/* Notes panel */}
-      {showNotes && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 -mt-1 border-t-0 rounded-t-none">
-          <SupplierNotesPanel supplierId={supplier.id} />
-        </div>
-      )}
 
       {/* Delete confirm */}
       <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)} title="Delete supplier" size="sm">
