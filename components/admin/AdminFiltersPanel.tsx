@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { Button } from '@/components/ui/Button'
 import { SlidersHorizontal, ArrowUpDown } from 'lucide-react'
 
@@ -51,16 +52,19 @@ export function AdminFiltersPanel({ profiles }: { profiles: ProfileOption[] }) {
     const supabase = createClient()
 
     if (supplierMode) {
-      let q = supabase
-        .from('suppliers')
-        .select('id, name, traffic_light, added_by, brands!inner(name, slug, last_reviewed_at, review_interval_months, review_disabled)')
-        .eq('supplier_status', 'active')
-        .range(0, 4999)
-      if (addedBy) q = q.eq('added_by', addedBy)
-      if (trafficRed) q = q.eq('traffic_light', 'red')
-      const { data } = await q
+      const data = await fetchAllRows((from, to) => {
+        let q = supabase
+          .from('suppliers')
+          .select('id, name, traffic_light, added_by, brands!inner(name, slug, last_reviewed_at, review_interval_months, review_disabled)')
+          .eq('supplier_status', 'active')
+          .order('name')
+          .range(from, to)
+        if (addedBy) q = q.eq('added_by', addedBy)
+        if (trafficRed) q = q.eq('traffic_light', 'red')
+        return q
+      })
 
-      let rows = ((data ?? []) as unknown as {
+      let rows = (data as unknown as {
         id: string; name: string; traffic_light: string | null; added_by: string | null
         brands: { name: string; slug: string; last_reviewed_at: string | null; review_interval_months: number; review_disabled: boolean }
       }[])
@@ -82,18 +86,21 @@ export function AdminFiltersPanel({ profiles }: { profiles: ProfileOption[] }) {
       })))
       setBrandResults(null)
     } else {
-      let q = supabase
-        .from('brands')
-        .select('id, name, slug, confirmed_suppliers, ai_do_not_quote, created_at, suppliers(id, ai_approved)')
-        .range(0, 4999)
-      if (confirmedOn && !confirmedOff) q = q.eq('confirmed_suppliers', true)
-      if (confirmedOff && !confirmedOn) q = q.eq('confirmed_suppliers', false)
-      if (aiDnq) q = q.eq('ai_do_not_quote', true)
-      if (dateFrom) q = q.gte('created_at', new Date(dateFrom).toISOString())
-      if (dateTo) q = q.lte('created_at', new Date(dateTo + 'T23:59:59').toISOString())
-      const { data } = await q
+      const data = await fetchAllRows((from, to) => {
+        let q = supabase
+          .from('brands')
+          .select('id, name, slug, confirmed_suppliers, ai_do_not_quote, created_at, suppliers(id, ai_approved)')
+          .order('name')
+          .range(from, to)
+        if (confirmedOn && !confirmedOff) q = q.eq('confirmed_suppliers', true)
+        if (confirmedOff && !confirmedOn) q = q.eq('confirmed_suppliers', false)
+        if (aiDnq) q = q.eq('ai_do_not_quote', true)
+        if (dateFrom) q = q.gte('created_at', new Date(dateFrom).toISOString())
+        if (dateTo) q = q.lte('created_at', new Date(dateTo + 'T23:59:59').toISOString())
+        return q
+      })
 
-      let rows = ((data ?? []) as unknown as {
+      let rows = (data as unknown as {
         id: string; name: string; slug: string; confirmed_suppliers: boolean
         ai_do_not_quote: boolean; created_at: string
         suppliers: { id: string; ai_approved: boolean }[]

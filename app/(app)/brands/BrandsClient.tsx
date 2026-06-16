@@ -8,6 +8,8 @@ type FilterMode = 'all' | 'ai_dnq' | 'review_due' | 'confirmed'
 
 function isReviewDue(b: Brand): boolean {
   if (b.review_disabled) return false
+  // Prefer the explicit next_review_at; fall back to last + interval
+  if (b.next_review_at) return new Date(b.next_review_at).getTime() <= Date.now()
   if (!b.last_reviewed_at) return true
   const next = new Date(b.last_reviewed_at)
   next.setMonth(next.getMonth() + (b.review_interval_months || 6))

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { TopBar } from '@/components/layout/TopBar'
+import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { Bot } from 'lucide-react'
 import { AdminSuppliersClient } from '../suppliers/AdminSuppliersClient'
 
@@ -13,16 +14,18 @@ export default async function AiEligiblePage() {
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   if (profile?.role !== 'admin') redirect('/')
 
-  const { data: suppliers } = await supabase
-    .from('suppliers')
-    .select('id, name, email, traffic_light, ai_approved, brand_id, brands!inner(name, slug, ai_do_not_quote)')
-    .eq('ai_approved', true)
-    .eq('supplier_status', 'active')
-    .eq('brands.ai_do_not_quote', false)
-    .order('name')
-    .range(0, 4999)
+  const suppliers = await fetchAllRows((from, to) =>
+    supabase
+      .from('suppliers')
+      .select('id, name, email, traffic_light, ai_approved, brand_id, brands!inner(name, slug, ai_do_not_quote)')
+      .eq('ai_approved', true)
+      .eq('supplier_status', 'active')
+      .eq('brands.ai_do_not_quote', false)
+      .order('name')
+      .range(from, to)
+  )
 
-  const count = suppliers?.length ?? 0
+  const count = suppliers.length
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

@@ -102,14 +102,6 @@ export function PriorityTasksList() {
         )}
       </div>
 
-      {tasks.length > 0 && (
-        <div className="px-4 py-2 bg-orange-50 border-b border-orange-100">
-          <p className="text-xs text-orange-700">
-            New suppliers and price comparisons added under these brands go to admin approval before counting.
-          </p>
-        </div>
-      )}
-
       <div className="divide-y divide-gray-50">
         {tasks.length === 0 ? (
           <p className="px-4 py-6 text-sm text-gray-400 text-center">No open priority tasks</p>

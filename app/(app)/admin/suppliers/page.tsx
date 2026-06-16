@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { TopBar } from '@/components/layout/TopBar'
+import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { AdminSuppliersClient } from './AdminSuppliersClient'
 
 export default async function AdminSuppliersPage() {
@@ -11,12 +12,15 @@ export default async function AdminSuppliersPage() {
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   if (profile?.role !== 'admin') redirect('/')
 
-  const { data: suppliers } = await supabase
-    .from('suppliers')
-    .select('id, name, email, traffic_light, ai_approved, brand_id, brands(name, slug)')
-    .eq('supplier_status', 'active')
-    .order('name')
-    .range(0, 4999)
+  // Chunked: PostgREST caps each response at 1000, so fetch ALL active suppliers
+  const suppliers = await fetchAllRows((from, to) =>
+    supabase
+      .from('suppliers')
+      .select('id, name, email, traffic_light, ai_approved, brand_id, brands(name, slug)')
+      .eq('supplier_status', 'active')
+      .order('name')
+      .range(from, to)
+  )
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

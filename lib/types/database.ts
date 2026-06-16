@@ -49,6 +49,7 @@ export interface Database {
           confirmed_suppliers: boolean
           review_interval_months: number
           last_reviewed_at: string | null
+          next_review_at: string | null
           reviewed_by: string | null
           review_disabled: boolean
           created_by: string | null
@@ -66,6 +67,7 @@ export interface Database {
           confirmed_suppliers?: boolean
           review_interval_months?: number
           last_reviewed_at?: string | null
+          next_review_at?: string | null
           reviewed_by?: string | null
           review_disabled?: boolean
           created_by?: string | null
@@ -81,6 +83,7 @@ export interface Database {
           confirmed_suppliers?: boolean
           review_interval_months?: number
           last_reviewed_at?: string | null
+          next_review_at?: string | null
           reviewed_by?: string | null
           review_disabled?: boolean
           created_by?: string | null

@@ -143,15 +143,23 @@ export function Leaderboard() {
     setAdjustLoading(false)
   }
 
-  // Full-text breakdown, e.g. "5 Suppliers · 1 Brand · 2 Priority Tasks"
-  function breakdownText(e: LeaderEntry): string {
-    const parts: string[] = []
-    if (e.breakdown.suppliers > 0) parts.push(`${e.breakdown.suppliers} Supplier${e.breakdown.suppliers !== 1 ? 's' : ''}`)
-    if (e.breakdown.brands > 0) parts.push(`${e.breakdown.brands} Brand${e.breakdown.brands !== 1 ? 's' : ''}`)
-    if (e.breakdown.comparisons > 0) parts.push(`${e.breakdown.comparisons} Price Comparison${e.breakdown.comparisons !== 1 ? 's' : ''}`)
-    if (e.breakdown.tasks > 0) parts.push(`${e.breakdown.tasks} Priority Task${e.breakdown.tasks !== 1 ? 's' : ''}`)
-    if (e.breakdown.adjustments !== 0) parts.push(`${e.breakdown.adjustments > 0 ? '+' : ''}${e.breakdown.adjustments} Adjustment`)
+  // Line 1: suppliers · brands (if any) · comparisons
+  function breakdownLine1(e: LeaderEntry): string {
+    const b = e.breakdown
+    const parts: string[] = [`${b.suppliers} supplier${b.suppliers !== 1 ? 's' : ''}`]
+    if (b.brands > 0) parts.push(`${b.brands} brand${b.brands !== 1 ? 's' : ''}`)
+    parts.push(`${b.comparisons} comparison${b.comparisons !== 1 ? 's' : ''}`)
     return parts.join(' · ')
+  }
+
+  // Line 2: priority task count, plus any manual adjustment
+  function breakdownLine2(e: LeaderEntry): string {
+    const b = e.breakdown
+    let line = `${b.tasks} priority task${b.tasks !== 1 ? 's' : ''}`
+    if (b.adjustments !== 0) {
+      line += `      ${b.adjustments > 0 ? '+' : ''}${b.adjustments} adjustment`
+    }
+    return line
   }
 
   const medals = ['🥇', '🥈', '🥉']
@@ -227,10 +235,10 @@ export function Leaderboard() {
       )}
 
       {/* Points legend */}
-      <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 flex gap-3 flex-wrap">
-        <span className="text-xs text-blue-600">1pt — Supplier or Brand added</span>
-        <span className="text-xs text-blue-600">2pts — Price Comparison</span>
-        <span className="text-xs text-blue-600">3pts — Priority Task (approved)</span>
+      <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 flex gap-4 flex-wrap">
+        <span className="text-xs font-medium text-blue-700">+1 Supplier/Brand</span>
+        <span className="text-xs font-medium text-blue-700">+2 Price Comparison</span>
+        <span className="text-xs font-medium text-blue-700">+3 Priority Task</span>
       </div>
 
       <div className="divide-y divide-gray-50">
@@ -238,24 +246,27 @@ export function Leaderboard() {
           <p className="px-4 py-6 text-sm text-gray-400 text-center">No data for this filter</p>
         ) : (
           entries.map((e, i) => (
-            <div key={e.user_id} className="flex items-center gap-3 px-4 py-2.5">
-              <span className="text-base w-6 text-center shrink-0">{medals[i] || `#${i + 1}`}</span>
+            <div key={e.user_id} className="flex items-start gap-3 px-4 py-3">
+              <span className="text-base w-6 text-center shrink-0 mt-0.5">{medals[i] || `#${i + 1}`}</span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">
-                  {e.full_name || e.email}
-                </p>
-                <p className="text-xs text-gray-400">{breakdownText(e)}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-900 truncate">{e.full_name || e.email}</p>
+                  <span className="text-sm font-bold text-blue-600 shrink-0">{e.points} pts</span>
+                </div>
+                {/* Line 1: suppliers · brands · comparisons */}
+                <p className="text-xs text-gray-500 mt-0.5">{breakdownLine1(e)}</p>
+                {/* Line 2: priority tasks + adjustment */}
+                <p className="text-xs text-gray-500">{breakdownLine2(e)}</p>
               </div>
               {isAdmin && (
                 <button
                   onClick={() => setAdjustFor(e)}
-                  className="text-gray-300 hover:text-blue-600 transition-colors shrink-0"
+                  className="text-gray-300 hover:text-blue-600 transition-colors shrink-0 mt-0.5"
                   title="Adjust points (admin only)"
                 >
                   <SlidersHorizontal className="h-3.5 w-3.5" />
                 </button>
               )}
-              <span className="text-sm font-bold text-blue-600 shrink-0">{e.points}pt</span>
             </div>
           ))
         )}

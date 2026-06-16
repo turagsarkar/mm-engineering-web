@@ -44,21 +44,37 @@ export async function GET() {
       .order('created_at', { ascending: false }),
   ])
 
-  // Reshape pending suppliers (stored as JSON) to the panel's expected shape
+  // Reshape pending suppliers (stored as JSON) — include the FULL entry so the
+  // admin can review every field before approving.
   const suppliers = (pendingSuppliers ?? []).map(row => {
     const d = (row.details ?? {}) as Record<string, unknown>
     return {
       id: row.id,
       name: row.entity_name,
       email: (d.email as string) ?? null,
+      contact_name: (d.contact_name as string) ?? null,
+      margin: (d.margin as string) ?? null,
+      where_to_look: (d.where_to_look as string) ?? null,
+      po_number: (d.po_number as string) ?? null,
       traffic_light: (d.traffic_light as string) ?? 'green',
+      notes: (d.notes as string) ?? null,
       created_at: row.created_at,
       brands: { name: (d.brand_name as string) ?? 'Unknown brand', slug: (d.brand_slug as string) ?? '' },
       profiles: row.profiles,
     }
   })
 
-  return NextResponse.json({ suppliers, comparisons: comparisons ?? [] })
+  // Attach the price lines to each pending comparison so the admin sees the full quote
+  const comparisonsWithLines = await Promise.all((comparisons ?? []).map(async c => {
+    const { data: lines } = await admin
+      .from('price_comparison_lines')
+      .select('id, supplier_name, price, lead_time, response_time, notes')
+      .eq('comparison_id', c.id)
+      .order('price', { ascending: true })
+    return { ...c, lines: lines ?? [] }
+  }))
+
+  return NextResponse.json({ suppliers, comparisons: comparisonsWithLines })
 }
 
 // POST: approve or reject one entry (admin only)

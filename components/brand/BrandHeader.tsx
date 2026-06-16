@@ -15,27 +15,34 @@ interface BrandHeaderProps {
   onUpdate: (b: Partial<Brand>) => void
 }
 
+function dateOnly(v: string | null): string {
+  return v ? v.split('T')[0] : ''
+}
+
 export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
   const { isAdmin, user } = useUser()
   const { toast } = useToast()
   const [confirmedLoading, setConfirmedLoading] = useState(false)
-  const [showSetDate, setShowSetDate] = useState(false)
+  const [showDates, setShowDates] = useState(false)
 
-  // Calendar-accurate: next review = last reviewed + interval months
+  // Two independent dates: last reviewed and next review (no auto-derive).
+  // Fall back to last + interval only if next_review_at hasn't been set yet.
   function addMonths(date: Date, months: number) {
     const d = new Date(date)
     d.setMonth(d.getMonth() + months)
     return d
   }
-  const nextReviewDate = brand.last_reviewed_at
-    ? addMonths(new Date(brand.last_reviewed_at), brand.review_interval_months)
-    : null
+  const fallbackNext = brand.last_reviewed_at
+    ? addMonths(new Date(brand.last_reviewed_at), brand.review_interval_months).toISOString().split('T')[0]
+    : ''
+  const nextReviewStr = dateOnly(brand.next_review_at) || fallbackNext
 
-  const [reviewDate, setReviewDate] = useState(
-    nextReviewDate ? nextReviewDate.toISOString().split('T')[0] : ''
-  )
+  const [lastDraft, setLastDraft] = useState(dateOnly(brand.last_reviewed_at))
+  const [nextDraft, setNextDraft] = useState(nextReviewStr)
+  const [savingDates, setSavingDates] = useState(false)
+
   const reviewDue = !brand.review_disabled &&
-    (!nextReviewDate || nextReviewDate.getTime() <= Date.now())
+    (!nextReviewStr || new Date(nextReviewStr).getTime() <= Date.now())
 
   async function patch(updates: BrandUpdate) {
     const supabase = createClient()
@@ -75,23 +82,32 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
     setConfirmedLoading(false)
   }
 
-  async function markReviewed() {
-    const now = new Date().toISOString()
-    if (await patch({ last_reviewed_at: now, reviewed_by: user?.id ?? null })) {
-      toast('Marked as reviewed', 'success')
-      setShowSetDate(false)
+  // "Mark as reviewed today" sets last reviewed = today and rolls next review
+  // forward by the interval.
+  async function markReviewedToday() {
+    const today = new Date()
+    const next = addMonths(today, brand.review_interval_months)
+    const lastIso = today.toISOString().split('T')[0]
+    const nextIso = next.toISOString().split('T')[0]
+    if (await patch({ last_reviewed_at: lastIso, next_review_at: nextIso, reviewed_by: user?.id ?? null })) {
+      setLastDraft(lastIso); setNextDraft(nextIso)
+      toast('Marked as reviewed today', 'success')
     }
   }
 
-  // The date picked is the NEXT review date; we back-compute last_reviewed_at
-  // so "next review = last reviewed + interval" lands exactly on the chosen day.
-  async function saveReviewDate() {
-    if (!reviewDate) return
-    const lastReviewed = addMonths(new Date(reviewDate), -brand.review_interval_months)
-    if (await patch({ last_reviewed_at: lastReviewed.toISOString(), reviewed_by: user?.id ?? null })) {
-      toast(`Next review set to ${formatDate(new Date(reviewDate).toISOString())}`, 'success')
-      setShowSetDate(false)
+  // Save BOTH calendars independently — exactly what the admin entered.
+  async function saveDates() {
+    setSavingDates(true)
+    const ok = await patch({
+      last_reviewed_at: lastDraft || null,
+      next_review_at: nextDraft || null,
+      reviewed_by: user?.id ?? null,
+    })
+    if (ok) {
+      toast('Review dates updated', 'success')
+      setShowDates(false)
     }
+    setSavingDates(false)
   }
 
   async function toggleReviewDisabled() {
@@ -133,9 +149,9 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
             {brand.last_reviewed_at && (
               <span>Last reviewed: {formatDate(brand.last_reviewed_at)}</span>
             )}
-            {!brand.review_disabled && nextReviewDate && (
+            {!brand.review_disabled && nextReviewStr && (
               <span className={reviewDue ? 'text-orange-600 font-medium' : ''}>
-                Next review: {formatDate(nextReviewDate.toISOString())}
+                Next review: {formatDate(nextReviewStr)}
               </span>
             )}
             {brand.review_disabled && (
@@ -184,99 +200,68 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
         </div>
       </div>
 
-      {/* Review section */}
+      {/* Review-due banner */}
       {!brand.review_disabled && reviewDue && (
-        <div className="border border-orange-200 bg-orange-50 rounded-lg p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />
-            <p className="text-sm font-medium text-orange-800">Review due</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={markReviewed}
-              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
-            >
-              <CalendarCheck className="h-3.5 w-3.5" />
-              Mark as reviewed today
-            </button>
-            <button
-              onClick={() => setShowSetDate(!showSetDate)}
-              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 border border-orange-300 text-orange-700 bg-white rounded-lg hover:bg-orange-50 transition-colors"
-            >
-              <Calendar className="h-3.5 w-3.5" />
-              Set next review date
-            </button>
-            <button
-              onClick={toggleReviewDisabled}
-              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 border border-gray-300 text-gray-600 bg-white rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <BellOff className="h-3.5 w-3.5" />
-              Disable reviews
-            </button>
-          </div>
-          {showSetDate && (
-            <div className="flex items-center gap-2 mt-2">
-              <input
-                type="date"
-                value={reviewDate}
-                onChange={e => setReviewDate(e.target.value)}
-                className="text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                onClick={saveReviewDate}
-                className="text-xs font-medium px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Save
-              </button>
-            </div>
-          )}
+        <div className="flex items-center gap-2 border border-orange-200 bg-orange-50 rounded-lg p-3">
+          <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />
+          <p className="text-sm font-medium text-orange-800">Review due</p>
+          <button
+            onClick={markReviewedToday}
+            className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+          >
+            <CalendarCheck className="h-3.5 w-3.5" />
+            Mark as reviewed today
+          </button>
         </div>
       )}
 
-      {/* Manage review when not due */}
-      {!brand.review_disabled && !reviewDue && brand.last_reviewed_at && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setShowSetDate(!showSetDate)}
-            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
-          >
-            <Calendar className="h-3.5 w-3.5" />
-            Change next review date
-          </button>
-          <button
-            onClick={toggleReviewDisabled}
-            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
-          >
-            <BellOff className="h-3.5 w-3.5" />
-            Disable reviews
-          </button>
-          {showSetDate && (
-            <div className="flex items-center gap-2 w-full">
-              <input
-                type="date"
-                value={reviewDate}
-                onChange={e => setReviewDate(e.target.value)}
-                className="text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                onClick={saveReviewDate}
-                className="text-xs font-medium px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Save
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {brand.review_disabled && (
+      {/* Review management controls */}
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={() => setShowDates(!showDates)}
+          className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          <Calendar className="h-3.5 w-3.5" />
+          {showDates ? 'Hide review dates' : 'Edit review dates'}
+        </button>
         <button
           onClick={toggleReviewDisabled}
           className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
         >
           <BellOff className="h-3.5 w-3.5" />
-          Re-enable reviews
+          {brand.review_disabled ? 'Re-enable reviews' : 'Disable reviews'}
         </button>
+      </div>
+
+      {/* Two independent calendars */}
+      {showDates && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 flex flex-wrap items-end gap-4">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-600">Last reviewed date</label>
+            <input
+              type="date"
+              value={lastDraft}
+              onChange={e => setLastDraft(e.target.value)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-600">Next review date</label>
+            <input
+              type="date"
+              value={nextDraft}
+              onChange={e => setNextDraft(e.target.value)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <button
+            onClick={saveDates}
+            disabled={savingDates}
+            className="text-sm font-medium px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {savingDates ? 'Saving…' : 'Save dates'}
+          </button>
+        </div>
       )}
     </div>
   )

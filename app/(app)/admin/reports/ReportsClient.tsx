@@ -1,6 +1,7 @@
 'use client'
 import { useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { Button } from '@/components/ui/Button'
 import { Download, BarChart3 } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils/format'
@@ -42,16 +43,19 @@ export function ReportsClient({ profiles }: { profiles: ProfileOption[] }) {
   const run = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
-    let q = supabase
-      .from('activity_log')
-      .select('id, user_id, action_type, entity_type, entity_name, created_at, profiles(full_name, email)')
-      .order('created_at', { ascending: false })
-      .range(0, 4999)
-    if (filterUser) q = q.eq('user_id', filterUser)
-    if (from) q = q.gte('created_at', new Date(from).toISOString())
-    if (to) q = q.lte('created_at', new Date(to + 'T23:59:59').toISOString())
-    const { data } = await q
-    setRows((data as ActivityRow[]) || [])
+    const data = await fetchAllRows<ActivityRow>((lo, hi) => {
+      let q = supabase
+        .from('activity_log')
+        .select('id, user_id, action_type, entity_type, entity_name, created_at, profiles(full_name, email)')
+        .neq('action_type', 'pending_supplier')
+        .order('created_at', { ascending: false })
+        .range(lo, hi)
+      if (filterUser) q = q.eq('user_id', filterUser)
+      if (from) q = q.gte('created_at', new Date(from).toISOString())
+      if (to) q = q.lte('created_at', new Date(to + 'T23:59:59').toISOString())
+      return q
+    })
+    setRows(data)
     setRan(true)
     setLoading(false)
   }, [filterUser, from, to])

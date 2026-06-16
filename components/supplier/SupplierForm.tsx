@@ -138,23 +138,17 @@ export function SupplierForm({ supplier, brandId, brandSlug, onSuccess }: Suppli
       return
     }
 
-    // Save notes if provided
-    if (notes.trim() && entityId) {
+    // Notes. On edit, ALWAYS clear the existing general note first so that
+    // emptying the field truly removes the note (was a reported bug). Then
+    // re-insert only if the admin left text in the field.
+    if (entityId) {
       if (isEdit) {
-        // Delete existing general note and insert new one
         await supabase.from('supplier_notes')
           .delete()
           .eq('supplier_id', entityId)
           .eq('note_type', 'general')
-        if (notes.trim()) {
-          await supabase.from('supplier_notes').insert({
-            supplier_id: entityId,
-            note_type: 'general',
-            note_text: notes.trim(),
-            created_by: user?.id,
-          })
-        }
-      } else {
+      }
+      if (notes.trim()) {
         await supabase.from('supplier_notes').insert({
           supplier_id: entityId,
           note_type: 'general',
