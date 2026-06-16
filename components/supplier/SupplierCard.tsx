@@ -25,17 +25,15 @@ export function SupplierCard({ supplier, onDelete, onUpdate }: SupplierCardProps
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [latestNote, setLatestNote] = useState<string | null>(null)
 
-  // Notes come only from the Add/Edit Supplier form (note_type 'general')
+  // Show the latest note of any type (form manages notes as a single field)
   useEffect(() => {
     createClient()
       .from('supplier_notes')
       .select('note_text')
       .eq('supplier_id', supplier.id)
-      .eq('note_type', 'general')
       .order('created_at', { ascending: false })
       .limit(1)
-      .single()
-      .then(({ data }) => { if (data) setLatestNote(data.note_text) })
+      .then(({ data }) => { setLatestNote(data && data.length > 0 ? data[0].note_text : null) })
   }, [supplier.id])
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({

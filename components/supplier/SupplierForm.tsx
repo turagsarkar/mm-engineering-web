@@ -47,15 +47,15 @@ export function SupplierForm({ supplier, brandId, brandSlug, onSuccess }: Suppli
   // Load existing general note on edit
   useEffect(() => {
     if (!isEdit || !supplier) return
+    // Load the latest note of ANY type — the form is the single source of
+    // supplier notes, so it must surface legacy notes (general/pricing/etc.) too.
     createClient()
       .from('supplier_notes')
       .select('note_text')
       .eq('supplier_id', supplier.id)
-      .eq('note_type', 'general')
       .order('created_at', { ascending: false })
       .limit(1)
-      .single()
-      .then(({ data }) => { if (data) setNotes(data.note_text) })
+      .then(({ data }) => { if (data && data.length > 0) setNotes(data[0].note_text) })
   }, [isEdit, supplier])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -143,10 +143,11 @@ export function SupplierForm({ supplier, brandId, brandSlug, onSuccess }: Suppli
     // re-insert only if the admin left text in the field.
     if (entityId) {
       if (isEdit) {
+        // Remove ALL existing notes for this supplier (any type) so clearing
+        // the field truly empties it, including legacy non-'general' notes.
         await supabase.from('supplier_notes')
           .delete()
           .eq('supplier_id', entityId)
-          .eq('note_type', 'general')
       }
       if (notes.trim()) {
         await supabase.from('supplier_notes').insert({
