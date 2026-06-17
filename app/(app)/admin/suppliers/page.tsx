@@ -16,7 +16,7 @@ export default async function AdminSuppliersPage() {
   const suppliers = await fetchAllRows((from, to) =>
     supabase
       .from('suppliers')
-      .select('id, name, email, traffic_light, ai_approved, brand_id, brands(name, slug)')
+      .select('id, name, email, contact_name, margin, where_to_look, po_number, traffic_light, ai_approved, brand_id, brands(name, slug)')
       .eq('supplier_status', 'active')
       .order('name')
       .range(from, to)

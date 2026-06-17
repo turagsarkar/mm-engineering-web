@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { Plus, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { Button } from '@/components/ui/Button'
@@ -34,6 +35,8 @@ export function PriceComparisonForm() {
   const [rows, setRows] = useState<Record<string, { price: string; leadTime: string; responseTime: string; notes: string }>>({})
   const [existing, setExisting] = useState<ExistingLine[]>([])
   const [loading, setLoading] = useState(false)
+  // Free-text rows for suppliers NOT in the system (#43)
+  const [extraRows, setExtraRows] = useState<{ name: string; price: string; leadTime: string; responseTime: string; notes: string }[]>([])
 
   useEffect(() => {
     const supabase = createClient()
@@ -88,13 +91,24 @@ export function PriceComparisonForm() {
     setRows(prev => ({ ...prev, [supplierId]: { ...prev[supplierId], [field]: value } }))
   }
 
+  function addExtraRow() {
+    setExtraRows(prev => [...prev, { name: '', price: '', leadTime: '', responseTime: '', notes: '' }])
+  }
+  function updateExtraRow(i: number, field: string, value: string) {
+    setExtraRows(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r))
+  }
+  function removeExtraRow(i: number) {
+    setExtraRows(prev => prev.filter((_, idx) => idx !== i))
+  }
+
   async function handleSave() {
     if (!partNumber.trim() || !selectedBrandId) {
       toast('Enter a part number and select a brand', 'error')
       return
     }
     const entries = suppliers.filter(s => rows[s.id]?.price || rows[s.id]?.notes)
-    if (entries.length === 0) {
+    const validExtras = extraRows.filter(r => r.name.trim() && (r.price || r.notes))
+    if (entries.length === 0 && validExtras.length === 0) {
       toast('Enter at least one price or note', 'error')
       return
     }
@@ -131,7 +145,17 @@ export function PriceComparisonForm() {
       return
     }
 
-    const lines = entries.map(s => ({
+    interface LineInsert {
+      comparison_id: string
+      supplier_id: string | null
+      supplier_name: string
+      supplier_email: string | null
+      price: number | null
+      lead_time: string | null
+      response_time: string | null
+      notes: string | null
+    }
+    const lines: LineInsert[] = entries.map(s => ({
       comparison_id: header.id,
       supplier_id: s.id,
       supplier_name: s.name,
@@ -141,6 +165,20 @@ export function PriceComparisonForm() {
       response_time: rows[s.id]?.responseTime || null,
       notes: rows[s.id]?.notes || null,
     }))
+
+    // Free-text suppliers not in the system (supplier_id = null)
+    for (const r of validExtras) {
+      lines.push({
+        comparison_id: header.id,
+        supplier_id: null,
+        supplier_name: r.name.trim(),
+        supplier_email: null,
+        price: r.price ? (isNaN(parseFloat(r.price)) ? null : parseFloat(r.price)) : null,
+        lead_time: r.leadTime || null,
+        response_time: r.responseTime || null,
+        notes: r.notes || null,
+      })
+    }
 
     const { error: linesErr } = await supabase.from('price_comparison_lines').insert(lines)
     if (linesErr) {
@@ -168,6 +206,7 @@ export function PriceComparisonForm() {
       setSelectedBrandId('')
       setSuppliers([])
       setRows({})
+      setExtraRows([])
       setExisting([])
     }
     setLoading(false)
@@ -200,7 +239,7 @@ export function PriceComparisonForm() {
         </div>
       </div>
 
-      {suppliers.length > 0 && (
+      {selectedBrandId && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[600px]">
@@ -247,11 +286,58 @@ export function PriceComparisonForm() {
                     </td>
                   </tr>
                 ))}
+
+                {/* Free-text rows: suppliers NOT in the system (#43) */}
+                {extraRows.map((r, i) => (
+                  <tr key={`extra-${i}`} className="bg-blue-50/40">
+                    <td className="px-4 py-3">
+                      <input placeholder="Supplier name (not in system)"
+                        value={r.name}
+                        onChange={e => updateExtraRow(i, 'name', e.target.value)}
+                        className="w-44 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input placeholder="e.g. 12.50" value={r.price}
+                        onChange={e => updateExtraRow(i, 'price', e.target.value)}
+                        className="w-24 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input placeholder="e.g. 2 weeks" value={r.leadTime}
+                        onChange={e => updateExtraRow(i, 'leadTime', e.target.value)}
+                        className="w-28 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input placeholder="e.g. 1 day" value={r.responseTime}
+                        onChange={e => updateExtraRow(i, 'responseTime', e.target.value)}
+                        className="w-24 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <input placeholder="Optional" value={r.notes}
+                          onChange={e => updateExtraRow(i, 'notes', e.target.value)}
+                          className="w-32 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        <button onClick={() => removeExtraRow(i)} title="Remove row"
+                          className="text-gray-400 hover:text-red-600 p-1">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-          <div className="px-6 py-4">
+          <div className="px-6 py-4 flex items-center gap-3 flex-wrap">
             <Button loading={loading} onClick={handleSave}>Save comparison</Button>
+            <button
+              type="button"
+              onClick={addExtraRow}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add price from a supplier not in the system
+            </button>
           </div>
         </div>
       )}

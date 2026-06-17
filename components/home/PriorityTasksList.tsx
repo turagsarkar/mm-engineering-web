@@ -14,19 +14,17 @@ interface TaskWithBrand extends PriorityTask {
   brands: { name: string; slug: string } | null
 }
 
-// Tasks stay open until an admin closes them. Work submitted under a
-// priority brand (new suppliers / price comparisons) goes through the
-// admin approval queue; the task itself is only closed by an admin,
-// optionally awarding 3 points to the user who did the work.
+// Tasks stay open until an admin closes them. Work submitted under a priority
+// brand (new suppliers / price comparisons) goes through the admin approval
+// queue and earns 3 pts each on approval. Closing a task just marks it
+// complete — no additional points (avoids double-counting).
 export function PriorityTasksList() {
   const { isAdmin } = useUser()
   const { toast } = useToast()
   const [tasks, setTasks] = useState<TaskWithBrand[]>([])
-  const [profiles, setProfiles] = useState<{ id: string; full_name: string | null; email: string }[]>([])
   const [showAdd, setShowAdd] = useState(false)
   const [editTask, setEditTask] = useState<TaskWithBrand | null>(null)
   const [closeTask, setCloseTask] = useState<TaskWithBrand | null>(null)
-  const [awardUser, setAwardUser] = useState('')
   const [closing, setClosing] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
 
@@ -42,12 +40,6 @@ export function PriorityTasksList() {
 
   useEffect(() => { load() }, [load])
 
-  useEffect(() => {
-    if (!isAdmin) return
-    createClient().from('profiles').select('id, full_name, email').eq('is_active', true).order('full_name')
-      .then(({ data }) => setProfiles(data || []))
-  }, [isAdmin])
-
   async function submitClose(e: React.FormEvent) {
     e.preventDefault()
     if (!closeTask) return
@@ -55,14 +47,14 @@ export function PriorityTasksList() {
     const res = await fetch('/api/tasks/approve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task_id: closeTask.id, action: 'close', award_user_id: awardUser || null }),
+      body: JSON.stringify({ task_id: closeTask.id, action: 'close' }),
     })
     if (!res.ok) {
       const json = await res.json().catch(() => ({}))
       toast(json.error || 'Failed to close task', 'error')
     } else {
-      toast(awardUser ? 'Task closed — 3 points awarded' : 'Task closed', 'success')
-      setCloseTask(null); setAwardUser('')
+      toast('Task closed', 'success')
+      setCloseTask(null)
       load()
     }
     setClosing(false)
@@ -126,7 +118,7 @@ export function PriorityTasksList() {
               {isAdmin && (
                 <div className="flex items-center gap-1 shrink-0">
                   <button
-                    onClick={() => { setCloseTask(task); setAwardUser('') }}
+                    onClick={() => setCloseTask(task)}
                     className="p-1 text-gray-300 hover:text-green-600 transition-colors"
                     title="Close task (fully complete)"
                   >
@@ -175,19 +167,9 @@ export function PriorityTasksList() {
           <p className="text-sm text-gray-600">
             Close <strong>{closeTask?.message}</strong>? This marks the task fully complete and removes it from the list.
           </p>
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-gray-700">Award 3 points to (optional)</label>
-            <select
-              value={awardUser}
-              onChange={e => setAwardUser(e.target.value)}
-              className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">No points awarded</option>
-              {profiles.map(p => (
-                <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
-              ))}
-            </select>
-          </div>
+          <p className="text-xs text-gray-500">
+            Points (3 each) were already awarded as the suppliers and price comparisons under this brand were approved — closing adds no further points.
+          </p>
           <div className="flex gap-3 pt-2">
             <Button type="submit" loading={closing}>Close task</Button>
             <Button type="button" variant="secondary" onClick={() => setCloseTask(null)}>Cancel</Button>

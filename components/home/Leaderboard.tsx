@@ -247,7 +247,10 @@ export function Leaderboard() {
         ) : (
           entries.map((e, i) => (
             <div key={e.user_id} className="flex items-start gap-3 px-4 py-3">
-              <span className="text-base w-6 text-center shrink-0 mt-0.5">{medals[i] || `#${i + 1}`}</span>
+              <span className="flex items-center gap-1 shrink-0 mt-0.5 whitespace-nowrap">
+                <span className="text-xs font-semibold text-gray-500">#{i + 1}</span>
+                {medals[i] && <span className="text-base">{medals[i]}</span>}
+              </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium text-gray-900 truncate">{e.full_name || e.email}</p>

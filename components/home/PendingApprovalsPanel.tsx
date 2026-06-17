@@ -76,7 +76,7 @@ export function PendingApprovalsPanel() {
       toast(json.error || 'Failed', 'error')
     } else {
       toast(action === 'approve'
-        ? `Approved — ${type === 'supplier' ? '1 point' : '2 points'} awarded`
+        ? 'Approved — 3 points awarded'
         : 'Rejected and removed', 'success')
       load()
     }
@@ -118,7 +118,7 @@ export function PendingApprovalsPanel() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">
                     {s.name}
-                    <span className="ml-2 text-xs font-normal text-gray-400">new supplier · 1pt</span>
+                    <span className="ml-2 text-xs font-normal text-gray-400">new supplier · 3pts</span>
                   </p>
                   <p className="text-xs text-gray-500 truncate">
                     {s.brands?.name} · by {s.profiles?.full_name || s.profiles?.email} · {timeAgo(s.created_at)}
@@ -164,7 +164,7 @@ export function PendingApprovalsPanel() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate font-mono">
                     {c.part_number}
-                    <span className="ml-2 text-xs font-normal font-sans text-gray-400">price comparison · 2pts</span>
+                    <span className="ml-2 text-xs font-normal font-sans text-gray-400">price comparison · 3pts</span>
                   </p>
                   <p className="text-xs text-gray-500 truncate">
                     {c.brands?.name} · by {c.profiles?.full_name || c.profiles?.email} · {timeAgo(c.created_at)} · {c.lines.length} price{c.lines.length !== 1 ? 's' : ''}

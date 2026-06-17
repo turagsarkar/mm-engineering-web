@@ -126,14 +126,15 @@ export async function POST(request: Request) {
         })
       }
 
-      // Log the point now that it's live, then remove the holding row
+      // Approved work under a priority brand counts as priority-task work = 3 pts
+      // (not the base 1pt for a supplier), then remove the holding row.
       await admin.from('activity_log').insert({
         user_id: row.user_id,
-        action_type: 'supplier_added',
+        action_type: 'task_completed',
         entity_type: 'supplier',
         entity_id: created.id,
-        entity_name: row.entity_name,
-        details: { approved_by: user.id },
+        entity_name: `Supplier: ${row.entity_name}`,
+        details: { approved_by: user.id, source: 'priority_supplier' },
       })
       await admin.from('activity_log').delete().eq('id', id)
     } else {
@@ -149,13 +150,15 @@ export async function POST(request: Request) {
       if (error) return NextResponse.json({ error: error.message }, { status: 400 })
       const brandRel = comp.brands as unknown as { name: string } | { name: string }[] | null
       const brandName = Array.isArray(brandRel) ? brandRel[0]?.name : brandRel?.name
+      // Approved comparison under a priority brand = priority-task work = 3 pts
+      // (not the base 2pts for a comparison).
       await admin.from('activity_log').insert({
         user_id: comp.created_by,
-        action_type: 'price_comparison_added',
+        action_type: 'task_completed',
         entity_type: 'price_comparison',
         entity_id: comp.id,
-        entity_name: `${comp.part_number}${brandName ? ` — ${brandName}` : ''}`,
-        details: { approved_by: user.id },
+        entity_name: `Price comparison: ${comp.part_number}${brandName ? ` — ${brandName}` : ''}`,
+        details: { approved_by: user.id, source: 'priority_comparison' },
       })
     } else {
       await admin.from('price_comparison_lines').delete().eq('comparison_id', id)

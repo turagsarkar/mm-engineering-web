@@ -17,7 +17,7 @@ export default async function AiEligiblePage() {
   const suppliers = await fetchAllRows((from, to) =>
     supabase
       .from('suppliers')
-      .select('id, name, email, traffic_light, ai_approved, brand_id, brands!inner(name, slug, ai_do_not_quote)')
+      .select('id, name, email, contact_name, margin, where_to_look, po_number, traffic_light, ai_approved, brand_id, brands!inner(name, slug, ai_do_not_quote)')
       .eq('ai_approved', true)
       .eq('supplier_status', 'active')
       .eq('brands.ai_do_not_quote', false)

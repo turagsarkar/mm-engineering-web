@@ -1,12 +1,16 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Search, X, ChevronRight, ChevronLeft, Bot } from 'lucide-react'
+import { Search, X, ChevronRight, ChevronLeft, Bot, Download } from 'lucide-react'
 
 interface SupplierRow {
   id: string
   name: string
   email: string | null
+  contact_name?: string | null
+  margin?: string | null
+  where_to_look?: string | null
+  po_number?: string | null
   traffic_light: string | null
   ai_approved: boolean
   brands: { name: string; slug: string } | null
@@ -38,6 +42,31 @@ export function AdminSuppliersClient({ suppliers }: { suppliers: SupplierRow[] }
   useEffect(() => { setPage(1) }, [query, tlFilter])
   const safePage = Math.min(page, totalPages)
   const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  // #51 Export the current (filtered) supplier list to CSV
+  function exportCsv() {
+    const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`
+    const header = 'Supplier,Brand,Email,Contact,Margin,Where to look,Previous PO,Priority,AI Approved\n'
+    const tlLabel: Record<string, string> = { green: 'Primary', amber: 'Alternative/Stock', red: 'Do Not Use' }
+    const body = filtered.map(s => [
+      esc(s.name),
+      esc(s.brands?.name || ''),
+      esc(s.email || ''),
+      esc(s.contact_name || ''),
+      esc(s.margin || ''),
+      esc(s.where_to_look || ''),
+      esc(s.po_number || ''),
+      esc(tlLabel[s.traffic_light ?? 'green'] || ''),
+      s.ai_approved ? 'Yes' : 'No',
+    ].join(',')).join('\n')
+    const blob = new Blob([header + body], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `suppliers-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="space-y-4">
@@ -74,11 +103,19 @@ export function AdminSuppliersClient({ suppliers }: { suppliers: SupplierRow[] }
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-gray-400">
           {filtered.length} supplier{filtered.length !== 1 ? 's' : ''}
           {totalPages > 1 && ` — showing ${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filtered.length)}`}
         </p>
+        <button
+          onClick={exportCsv}
+          disabled={filtered.length === 0}
+          className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors shrink-0"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Export CSV ({filtered.length})
+        </button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-50">
