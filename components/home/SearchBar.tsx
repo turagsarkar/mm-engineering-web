@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, X, Tag, Truck } from 'lucide-react'
+import { Search, X, Tag, Truck, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface SearchResult {
@@ -123,9 +123,22 @@ export function SearchBar({ compact }: SearchBarProps) {
 
   function clear() { setQuery(''); setResults([]); setOpen(false) }
 
+  function handleAddBrand() {
+    const name = query.trim()
+    setOpen(false)
+    setQuery('')
+    router.push(`/brands/new?name=${encodeURIComponent(name)}`)
+  }
+
   const filtered = (filter === 'all' ? results : results.filter(r => r.type === filter)).slice(0, MAX_RESULTS)
   const brandCount = results.filter(r => r.type === 'brand').length
   const supplierCount = results.filter(r => r.type === 'supplier').length
+
+  // Offer "Add brand" whenever the typed name isn't an exact brand match — lets
+  // the user create an unrecognised brand without leaving the search.
+  const trimmedQuery = query.trim()
+  const hasExactBrand = results.some(r => r.type === 'brand' && r.label.toLowerCase() === trimmedQuery.toLowerCase())
+  const canAddBrand = trimmedQuery.length > 0 && !hasExactBrand
 
   const pills: { id: FilterType; label: string; count: number }[] = [
     { id: 'all', label: 'All', count: results.length },
@@ -172,13 +185,34 @@ export function SearchBar({ compact }: SearchBarProps) {
                 <span className={filter === p.id ? 'opacity-90' : 'text-gray-400'}>{p.count}</span>
               </button>
             ))}
+            {/* "Add" tab — create an unrecognised brand without leaving search */}
+            {canAddBrand && (
+              <button
+                onClick={handleAddBrand}
+                className="ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+              >
+                <Plus className="h-3 w-3" />
+                Add
+              </button>
+            )}
           </div>
 
           <div className="max-h-80 overflow-y-auto">
             {loading ? (
               <div className="px-4 py-3 text-sm text-gray-500">Searching…</div>
             ) : filtered.length === 0 ? (
-              <div className="px-4 py-3 text-sm text-gray-400">No matches for &ldquo;{query}&rdquo;</div>
+              <div>
+                <div className="px-4 py-3 text-sm text-gray-400">No matches for &ldquo;{query}&rdquo;</div>
+                {canAddBrand && (
+                  <button
+                    onClick={handleAddBrand}
+                    className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm font-medium text-blue-700 hover:bg-blue-50 border-t border-gray-100"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add &ldquo;{trimmedQuery}&rdquo; as a new brand
+                  </button>
+                )}
+              </div>
             ) : (
               filtered.map(r => (
                 <button
@@ -197,6 +231,16 @@ export function SearchBar({ compact }: SearchBarProps) {
                   </div>
                 </button>
               ))
+            )}
+            {/* Add-brand footer when results exist but none is an exact brand match */}
+            {!loading && filtered.length > 0 && canAddBrand && (
+              <button
+                onClick={handleAddBrand}
+                className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm font-medium text-blue-700 hover:bg-blue-50 border-t border-gray-100"
+              >
+                <Plus className="h-4 w-4" />
+                Add &ldquo;{trimmedQuery}&rdquo; as a new brand
+              </button>
             )}
           </div>
         </div>

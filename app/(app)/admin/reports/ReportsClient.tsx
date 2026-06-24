@@ -32,15 +32,34 @@ const ACTION_LABELS: Record<string, string> = {
   points_adjustment: 'Points adjustments',
 }
 
+// The three headline metrics charted over time (brief 2.10).
+const CORE_METRICS: { key: string; label: string; color: string }[] = [
+  { key: 'brand_added', label: 'Brands added', color: '#3b82f6' },
+  { key: 'supplier_added', label: 'Suppliers added', color: '#22c55e' },
+  { key: 'price_comparison_added', label: 'Price comparisons', color: '#f59e0b' },
+]
+
+type QuickPeriod = 'today' | 'week' | 'month' | 'custom'
+
+function rangeFor(p: QuickPeriod): { from: string; to: string } {
+  const now = new Date()
+  const iso = (d: Date) => d.toISOString().split('T')[0]
+  if (p === 'today') return { from: iso(now), to: iso(now) }
+  if (p === 'week') { const d = new Date(); d.setDate(d.getDate() - 7); return { from: iso(d), to: iso(now) } }
+  if (p === 'month') { const d = new Date(); d.setMonth(d.getMonth() - 1); return { from: iso(d), to: iso(now) } }
+  return { from: '', to: '' }
+}
+
 export function ReportsClient({ profiles }: { profiles: ProfileOption[] }) {
   const [filterUser, setFilterUser] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const [quick, setQuick] = useState<QuickPeriod>('custom')
   const [rows, setRows] = useState<ActivityRow[]>([])
   const [loading, setLoading] = useState(false)
   const [ran, setRan] = useState(false)
 
-  const run = useCallback(async () => {
+  const runWith = useCallback(async (fromVal: string, toVal: string, userVal: string) => {
     setLoading(true)
     const supabase = createClient()
     const data = await fetchAllRows<ActivityRow>((lo, hi) => {
@@ -50,15 +69,25 @@ export function ReportsClient({ profiles }: { profiles: ProfileOption[] }) {
         .neq('action_type', 'pending_supplier')
         .order('created_at', { ascending: false })
         .range(lo, hi)
-      if (filterUser) q = q.eq('user_id', filterUser)
-      if (from) q = q.gte('created_at', new Date(from).toISOString())
-      if (to) q = q.lte('created_at', new Date(to + 'T23:59:59').toISOString())
+      if (userVal) q = q.eq('user_id', userVal)
+      if (fromVal) q = q.gte('created_at', new Date(fromVal).toISOString())
+      if (toVal) q = q.lte('created_at', new Date(toVal + 'T23:59:59').toISOString())
       return q
     })
     setRows(data)
     setRan(true)
     setLoading(false)
-  }, [filterUser, from, to])
+  }, [])
+
+  const run = useCallback(() => runWith(from, to, filterUser), [runWith, from, to, filterUser])
+
+  function applyQuick(p: QuickPeriod) {
+    setQuick(p)
+    if (p === 'custom') return
+    const { from: f, to: t } = rangeFor(p)
+    setFrom(f); setTo(t)
+    runWith(f, t, filterUser)
+  }
 
   // Summary: count by action type
   const summary: Record<string, number> = {}
@@ -71,6 +100,30 @@ export function ReportsClient({ profiles }: { profiles: ProfileOption[] }) {
     if (!byUser[key]) byUser[key] = { name: r.profiles?.full_name || r.profiles?.email || 'System', count: 0 }
     byUser[key].count++
   }
+
+  // Time-series buckets for the three core metrics
+  const timeSeries = (() => {
+    if (rows.length === 0) return [] as { label: string; values: number[] }[]
+    const times = rows.map(r => new Date(r.created_at).getTime())
+    const span = (Math.max(...times) - Math.min(...times)) / 864e5
+    const byMonth = span > 45
+    const fmt = (t: number) => {
+      const d = new Date(t)
+      return byMonth ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : d.toISOString().split('T')[0]
+    }
+    const buckets = new Map<string, number[]>()
+    for (const r of rows) {
+      const idx = CORE_METRICS.findIndex(m => m.key === r.action_type)
+      if (idx === -1) continue
+      const k = fmt(new Date(r.created_at).getTime())
+      const arr = buckets.get(k) || [0, 0, 0]
+      arr[idx]++
+      buckets.set(k, arr)
+    }
+    return [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, values]) => ({ label, values }))
+  })()
+
+  const coreTotals = CORE_METRICS.map(m => ({ ...m, total: summary[m.key] || 0 }))
 
   function downloadCsv() {
     const header = 'Date,User,Action,Entity Type,Entity Name\n'
@@ -98,6 +151,17 @@ export function ReportsClient({ profiles }: { profiles: ProfileOption[] }) {
           <BarChart3 className="h-4 w-4 text-blue-600" />
           Report filters
         </h3>
+
+        {/* Quick period buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {([['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['custom', 'Custom']] as [QuickPeriod, string][]).map(([id, label]) => (
+            <button key={id} onClick={() => applyQuick(id)}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${quick === id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-gray-500">User</label>
@@ -109,12 +173,12 @@ export function ReportsClient({ profiles }: { profiles: ProfileOption[] }) {
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-gray-500">From</label>
-            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+            <input type="date" value={from} onChange={e => { setFrom(e.target.value); setQuick('custom') }}
               className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-gray-500">To</label>
-            <input type="date" value={to} onChange={e => setTo(e.target.value)}
+            <input type="date" value={to} onChange={e => { setTo(e.target.value); setQuick('custom') }}
               className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>
@@ -131,7 +195,37 @@ export function ReportsClient({ profiles }: { profiles: ProfileOption[] }) {
 
       {ran && (
         <>
-          {/* Summary by action */}
+          {/* Core metric totals */}
+          <div className="grid grid-cols-3 gap-3">
+            {coreTotals.map(m => (
+              <div key={m.key} className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: m.color }} />
+                  <p className="text-2xl font-bold text-gray-900">{m.total}</p>
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">{m.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Bar chart over time (brief 2.10) */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-900">Activity over time</h3>
+              <div className="flex items-center gap-3">
+                {CORE_METRICS.map(m => (
+                  <span key={m.key} className="flex items-center gap-1 text-xs text-gray-500">
+                    <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: m.color }} />{m.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {timeSeries.length === 0
+              ? <p className="text-center text-sm text-gray-400 py-10">No charted activity in this period</p>
+              : <GroupedBars series={timeSeries} colors={CORE_METRICS.map(m => m.color)} />}
+          </div>
+
+          {/* Summary by action (all action types) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {Object.entries(summary).sort((a, b) => b[1] - a[1]).map(([action, count]) => (
               <div key={action} className="bg-white rounded-xl border border-gray-200 p-4">
@@ -174,6 +268,26 @@ export function ReportsClient({ profiles }: { profiles: ProfileOption[] }) {
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+// Grouped vertical bars: one group per time bucket, one bar per core metric.
+function GroupedBars({ series, colors }: { series: { label: string; values: number[] }[]; colors: string[] }) {
+  const max = Math.max(1, ...series.flatMap(s => s.values))
+  return (
+    <div className="flex items-end gap-2 h-52 overflow-x-auto pt-4">
+      {series.map(s => (
+        <div key={s.label} className="flex flex-col items-center gap-1 h-full justify-end min-w-[40px]">
+          <div className="flex items-end gap-0.5 h-full">
+            {s.values.map((v, i) => (
+              <div key={i} className="w-2.5 rounded-t" title={`${v}`}
+                style={{ height: `${(v / max) * 100}%`, minHeight: v > 0 ? 2 : 0, backgroundColor: colors[i] }} />
+            ))}
+          </div>
+          <span className="text-[9px] text-gray-400 truncate w-full text-center" title={s.label}>{s.label.slice(5)}</span>
+        </div>
+      ))}
     </div>
   )
 }

@@ -217,7 +217,9 @@ export function AdminFiltersPanel({ profiles }: { profiles: ProfileOption[] }) {
                 className="flex items-center gap-3 w-full px-6 py-2.5 hover:bg-gray-50 transition-colors text-left text-sm">
                 <span className="flex-1 font-medium text-gray-900 truncate">{b.name}</span>
                 {b.ai_do_not_quote && <span className="text-xs text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-200">AI DNQ</span>}
-                {b.confirmed_suppliers && <span className="text-xs text-green-700 bg-green-50 px-1.5 py-0.5 rounded border border-green-200">Confirmed</span>}
+                {b.confirmed_suppliers
+                  ? <span className="text-xs text-green-700 bg-green-50 px-1.5 py-0.5 rounded border border-green-200">Sourcing Complete</span>
+                  : <span className="text-xs text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-200">Sourcing Required</span>}
                 <span className="text-xs text-gray-400 w-20 text-right">{b.supplierCount} supplier{b.supplierCount !== 1 ? 's' : ''}</span>
               </button>
             ))}

@@ -1,18 +1,37 @@
 'use client'
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
-import { Bot, AlertTriangle, Mail, ClipboardCheck, Tag, Truck, Download, TrendingUp } from 'lucide-react'
+import { Bot, AlertTriangle, Mail, ClipboardCheck, Tag, Truck, Download, TrendingUp, CheckCircle2, BarChart3, LineChart as LineIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { useToast } from '@/components/ui/Toast'
 import { formatDateTime } from '@/lib/utils/format'
-import type { EnquiryRow, ReviewRow } from './page'
+import type { EnquiryRow, ReviewRow, CoverageSupplier } from './page'
 
 type Period = '1w' | '1m' | '3m' | 'all' | 'custom'
-type Tab = 'brands' | 'suppliers' | 'enquiries' | 'reviews'
+type Tab = 'brands' | 'suppliers' | 'enquiries' | 'reviews' | 'manual_brands'
 
 const PERIOD_LABEL: Record<Period, string> = {
   '1w': '1 week', '1m': '1 month', '3m': '3 months', all: 'All time', custom: 'Custom',
+}
+
+// Friendly labels for known reason codes (brief section 3). Unknown codes are
+// humanised automatically.
+const REASON_LABELS: Record<string, string> = {
+  supplier_sent: 'Supplier RFQ sent',
+  filtered: 'Filtered (spam / OOO / non-genuine)',
+  no_supplier: 'No supplier found',
+  ai_do_not_quote: 'Brand: AI do not quote',
+  low_confidence: 'Low confidence',
+  unconfirmed_supplier: 'Unconfirmed supplier',
+  motor_only: 'Pure motor enquiry',
+  duplicate: 'Duplicate re-submission',
+  out_of_office: 'Out of office / bounce',
+  manual_review: 'Manual review required',
+  parse_error: 'Could not parse enquiry',
+}
+function reasonLabel(code: string): string {
+  return REASON_LABELS[code] || code.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
 function periodStart(p: Period, customFrom: string): number | null {
@@ -28,16 +47,22 @@ function periodStart(p: Period, customFrom: string): number | null {
 interface Props {
   aiApproved: number
   dnqBrands: number
+  totalBrands: number
+  confirmedBrands: number
   enquiries: EnquiryRow[]
   reviews: ReviewRow[]
+  coverageSuppliers: CoverageSupplier[]
 }
 
-export function AiDashboardClient({ aiApproved, dnqBrands, enquiries, reviews }: Props) {
+export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirmedBrands, enquiries, reviews, coverageSuppliers }: Props) {
   const { toast } = useToast()
   const [period, setPeriod] = useState<Period>('all')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
-  const [tab, setTab] = useState<Tab>('brands')
+  const [reasonFilter, setReasonFilter] = useState<Set<string>>(new Set())
+  const [brandFilter, setBrandFilter] = useState('')
+  const [tab, setTab] = useState<Tab>('manual_brands')
+  const [trendMode, setTrendMode] = useState<'bar' | 'line'>('bar')
   const [exporting, setExporting] = useState<string | null>(null)
 
   const start = periodStart(period, customFrom)
@@ -51,37 +76,160 @@ export function AiDashboardClient({ aiApproved, dnqBrands, enquiries, reviews }:
     return true
   }
 
-  const enqSent = useMemo(() => enquiries.filter(e => inPeriod(e.processed_at)), [enquiries, period, customFrom, customTo])
-  const reviewsFiltered = useMemo(() => reviews.filter(r => inPeriod(r.created_at)), [reviews, period, customFrom, customTo])
-  const pendingReviews = reviewsFiltered.filter(r => (r.status ?? 'pending') === 'pending')
+  // ---- Filter options (derived from ALL data, before filtering) ----
+  const allReasonCodes = useMemo(() => {
+    const s = new Set<string>()
+    for (const e of enquiries) if (e.reason_code) s.add(e.reason_code)
+    for (const r of reviews) if (r.reason_code) s.add(r.reason_code)
+    return [...s].sort()
+  }, [enquiries, reviews])
 
-  // Rankings
-  function rank(items: string[]): { name: string; count: number }[] {
-    const m = new Map<string, number>()
-    for (const x of items) {
-      const k = (x || 'Unknown').trim()
-      m.set(k, (m.get(k) ?? 0) + 1)
+  const allBrands = useMemo(() => {
+    const s = new Set<string>()
+    for (const e of enquiries) if (e.brand_detected) s.add(e.brand_detected)
+    for (const r of reviews) if (r.brand_extracted) s.add(r.brand_extracted)
+    return [...s].sort()
+  }, [enquiries, reviews])
+
+  // ---- Apply all filters (date + reason + brand) ----
+  const matchReason = (code: string | null) => reasonFilter.size === 0 || (code != null && reasonFilter.has(code))
+
+  const enqF = useMemo(() => enquiries.filter(e =>
+    inPeriod(e.processed_at) && matchReason(e.reason_code) && (!brandFilter || e.brand_detected === brandFilter)
+  ), [enquiries, period, customFrom, customTo, reasonFilter, brandFilter])
+
+  const revF = useMemo(() => reviews.filter(r =>
+    inPeriod(r.created_at) && matchReason(r.reason_code) && (!brandFilter || r.brand_extracted === brandFilter)
+  ), [reviews, period, customFrom, customTo, reasonFilter, brandFilter])
+
+  const pendingReviews = useMemo(() => revF.filter(r => (r.status ?? 'pending') === 'pending'), [revF])
+
+  // ---- Per-reference auto-processing outcome (2.11 metrics) ----
+  // Fully = all lines RFQ-sent, no manual review. Partial = some sent + some
+  // review. Manual only = review rows but nothing sent.
+  interface RefAgg { sent: number; review: number; date: number }
+  const refMap = useMemo(() => {
+    const m = new Map<string, RefAgg>()
+    const touch = (ref: string, ts: string | null) => {
+      const t = ts ? new Date(ts).getTime() : 0
+      let cur = m.get(ref)
+      if (!cur) { cur = { sent: 0, review: 0, date: t }; m.set(ref, cur) }
+      else if (t && (cur.date === 0 || t < cur.date)) cur.date = t
+      return cur
     }
+    for (const e of enqF) { const a = touch(e.reference || e.id, e.processed_at); if ((e.status ?? 'sent') === 'sent') a.sent++ }
+    for (const r of revF) { const a = touch(r.reference || r.id, r.created_at); a.review++ }
+    return m
+  }, [enqF, revF])
+
+  const metrics = useMemo(() => {
+    let fully = 0, partial = 0, manual = 0
+    for (const r of refMap.values()) {
+      if (r.sent > 0 && r.review === 0) fully++
+      else if (r.sent > 0 && r.review > 0) partial++
+      else if (r.review > 0) manual++
+    }
+    const total = refMap.size
+    const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0
+    return { total, fully, partial, manual, fullyPct: pct(fully), partialPct: pct(partial), manualPct: pct(manual) }
+  }, [refMap])
+
+  // ---- Success rate over time ----
+  const trend = useMemo(() => {
+    const startTs = start ?? Math.min(...[...refMap.values()].map(r => r.date).filter(Boolean), Date.now())
+    const endTs = end ?? Date.now()
+    const spanDays = (endTs - startTs) / 864e5
+    const byMonth = spanDays > 45 || !isFinite(spanDays)
+    const fmt = (t: number) => {
+      const d = new Date(t)
+      return byMonth ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : d.toISOString().split('T')[0]
+    }
+    const buckets = new Map<string, { fully: number; total: number }>()
+    for (const r of refMap.values()) {
+      if (!r.date) continue
+      const k = fmt(r.date)
+      const b = buckets.get(k) || { fully: 0, total: 0 }
+      b.total++
+      if (r.sent > 0 && r.review === 0) b.fully++
+      buckets.set(k, b)
+    }
+    return [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([label, v]) => ({ label, value: v.total > 0 ? Math.round((v.fully / v.total) * 100) : 0, total: v.total }))
+  }, [refMap, start, end])
+
+  // ---- Enquiries by reason code ----
+  const reasonChart = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const e of enqF) { const c = e.reason_code || 'unknown'; m.set(c, (m.get(c) ?? 0) + 1) }
+    for (const r of revF) { const c = r.reason_code || 'unknown'; m.set(c, (m.get(c) ?? 0) + 1) }
+    return [...m.entries()].map(([code, count]) => ({ label: reasonLabel(code), count })).sort((a, b) => b.count - a.count)
+  }, [enqF, revF])
+
+  // ---- Supplier coverage growth (cumulative brands with >=1 ai_approved supplier) ----
+  const coverage = useMemo(() => {
+    const sorted = [...coverageSuppliers].filter(s => s.created_at).sort((a, b) => a.created_at!.localeCompare(b.created_at!))
+    const seen = new Set<string>()
+    const monthly = new Map<string, number>()
+    for (const s of sorted) {
+      if (s.brand_id) seen.add(s.brand_id)
+      const d = new Date(s.created_at!)
+      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      monthly.set(k, seen.size)
+    }
+    return [...monthly.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, value]) => ({ label, value }))
+  }, [coverageSuppliers])
+
+  // ---- Top brands by manual review ----
+  const topManualBrands = useMemo(() => {
+    const m = new Map<string, { count: number; reasons: Map<string, number> }>()
+    for (const r of revF) {
+      const b = r.brand_extracted || 'Unknown'
+      const e = m.get(b) || { count: 0, reasons: new Map() }
+      e.count++
+      const rc = r.reason_code || 'unknown'
+      e.reasons.set(rc, (e.reasons.get(rc) ?? 0) + 1)
+      m.set(b, e)
+    }
+    return [...m.entries()].map(([name, v]) => {
+      const top = [...v.reasons.entries()].sort((a, b) => b[1] - a[1])[0]
+      return { name, count: v.count, reason: top ? reasonLabel(top[0]) : '—' }
+    }).sort((a, b) => b.count - a.count)
+  }, [revF])
+
+  // ---- Rankings for AI-used drilldowns ----
+  function rank(items: string[]) {
+    const m = new Map<string, number>()
+    for (const x of items) { const k = (x || 'Unknown').trim(); m.set(k, (m.get(k) ?? 0) + 1) }
     return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
   }
-  const topBrands = useMemo(() => rank(enqSent.map(e => e.brand_detected || 'Unknown')), [enqSent])
-  const topSuppliers = useMemo(() => rank(enqSent.map(e => e.supplier_name || 'Unknown')), [enqSent])
+  const topBrands = useMemo(() => rank(enqF.map(e => e.brand_detected || 'Unknown')), [enqF])
+  const topSuppliers = useMemo(() => rank(enqF.map(e => e.supplier_name || 'Unknown')), [enqF])
 
+  // ---- KPI cards (2.11) ----
+  const kpis = [
+    { label: 'Enquiries Processed', value: metrics.total, sub: 'genuine enquiries', color: 'bg-blue-50 text-blue-600 border-blue-100', icon: Mail },
+    { label: 'Fully Auto-Processed', value: `${metrics.fullyPct}%`, sub: `${metrics.fully} enquiries`, color: 'bg-green-50 text-green-600 border-green-100', icon: CheckCircle2 },
+    { label: 'Partially Auto-Processed', value: `${metrics.partialPct}%`, sub: `${metrics.partial} enquiries`, color: 'bg-amber-50 text-amber-600 border-amber-100', icon: AlertTriangle },
+    { label: 'Manual Review Only', value: `${metrics.manualPct}%`, sub: `${metrics.manual} enquiries`, color: 'bg-red-50 text-red-600 border-red-100', icon: ClipboardCheck },
+  ]
+
+  // Secondary clickable cards (kept from earlier requirements 51-54)
   const cards = [
     { id: 'ai_approved', label: 'AI-Approved Suppliers', value: aiApproved, icon: Bot, color: 'bg-green-50 text-green-600 border-green-100', href: '/admin/ai-eligible', tab: null },
     { id: 'dnq', label: 'AI Do Not Quote Brands', value: dnqBrands, icon: AlertTriangle, color: 'bg-red-50 text-red-600 border-red-100', href: '/brands?filter=ai_do_not_quote', tab: null },
-    { id: 'enquiries', label: 'AI Enquiries Sent', value: enqSent.length, icon: Mail, color: 'bg-blue-50 text-blue-600 border-blue-100', href: null, tab: 'enquiries' as Tab },
+    { id: 'enquiries', label: 'AI Enquiries Sent', value: enqF.length, icon: Mail, color: 'bg-blue-50 text-blue-600 border-blue-100', href: null, tab: 'enquiries' as Tab },
     { id: 'reviews', label: 'Pending Manual Review', value: pendingReviews.length, icon: ClipboardCheck, color: 'bg-orange-50 text-orange-600 border-orange-100', href: null, tab: 'reviews' as Tab },
   ]
 
   const tabs: { id: Tab; label: string; icon: typeof Tag; count: number }[] = [
+    { id: 'manual_brands', label: 'Top Brands by Manual Review', icon: AlertTriangle, count: topManualBrands.length },
     { id: 'brands', label: 'Top Brands AI Used', icon: Tag, count: topBrands.length },
     { id: 'suppliers', label: 'Top Suppliers AI Used', icon: Truck, count: topSuppliers.length },
-    { id: 'enquiries', label: 'Enquiries Sent', icon: Mail, count: enqSent.length },
+    { id: 'enquiries', label: 'Enquiries Sent', icon: Mail, count: enqF.length },
     { id: 'reviews', label: 'Pending Review', icon: ClipboardCheck, count: pendingReviews.length },
   ]
 
-  // ---- CSV exports (#51) ----
+  // ---- CSV exports ----
   function downloadCsv(name: string, header: string, rows: string[]) {
     const blob = new Blob([header + '\n' + rows.join('\n')], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -97,8 +245,8 @@ export function AiDashboardClient({ aiApproved, dnqBrands, enquiries, reviews }:
     const rows = await fetchAllRows<{ name: string; aliases: string[] | null; ai_do_not_quote: boolean; confirmed_suppliers: boolean; last_reviewed_at: string | null; next_review_at: string | null }>(
       (f, t) => supabase.from('brands').select('name, aliases, ai_do_not_quote, confirmed_suppliers, last_reviewed_at, next_review_at').order('name').range(f, t)
     )
-    downloadCsv('brands', 'Brand,Aliases,AI Do Not Quote,Confirmed Suppliers,Last Reviewed,Next Review',
-      rows.map(b => [esc(b.name), esc((b.aliases || []).join(' | ')), b.ai_do_not_quote ? 'Yes' : 'No', b.confirmed_suppliers ? 'Yes' : 'No', esc(b.last_reviewed_at || ''), esc(b.next_review_at || '')].join(',')))
+    downloadCsv('brands', 'Brand,Aliases,AI Do Not Quote,Sourcing Status,Last Reviewed,Next Review',
+      rows.map(b => [esc(b.name), esc((b.aliases || []).join(' | ')), b.ai_do_not_quote ? 'Yes' : 'No', b.confirmed_suppliers ? 'Sourcing Complete' : 'Sourcing Required', esc(b.last_reviewed_at || ''), esc(b.next_review_at || '')].join(',')))
     setExporting(null); toast(`Exported ${rows.length} brands`, 'success')
   }
 
@@ -115,35 +263,128 @@ export function AiDashboardClient({ aiApproved, dnqBrands, enquiries, reviews }:
   }
 
   function exportEnquiries() {
-    setExporting('enquiries')
-    downloadCsv('ai-enquiries', 'Reference,Brand,Supplier,Status,Confidence,Sent',
-      enqSent.map(e => [esc(e.reference || ''), esc(e.brand_detected || ''), esc(e.supplier_name || ''), esc(e.status || ''), esc(e.confidence || ''), esc(e.processed_at || '')].join(',')))
-    setExporting(null)
+    downloadCsv('ai-enquiries', 'Reference,Brand,Supplier,Status,Reason,Confidence,Sent',
+      enqF.map(e => [esc(e.reference || ''), esc(e.brand_detected || ''), esc(e.supplier_name || ''), esc(e.status || ''), esc(e.reason_code || ''), esc(e.confidence || ''), esc(e.processed_at || '')].join(',')))
   }
+
+  const filtersActive = reasonFilter.size > 0 || !!brandFilter || period !== 'all'
 
   return (
     <div className="space-y-6">
-      {/* Time period filter — applies to all selections (#53) */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs font-medium text-gray-500">Time period:</span>
-        {(Object.keys(PERIOD_LABEL) as Period[]).map(p => (
-          <button key={p} onClick={() => setPeriod(p)}
-            className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${period === p ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>
-            {PERIOD_LABEL[p]}
-          </button>
-        ))}
-        {period === 'custom' && (
-          <span className="flex items-center gap-2">
-            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
-              className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-            <span className="text-xs text-gray-400">to</span>
-            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
-              className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-          </span>
+      {/* ---- Filters: date range + reason code (multi) + brand (single) ---- */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-medium text-gray-500">Time period:</span>
+          {(Object.keys(PERIOD_LABEL) as Period[]).map(p => (
+            <button key={p} onClick={() => setPeriod(p)}
+              className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${period === p ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>
+              {PERIOD_LABEL[p]}
+            </button>
+          ))}
+          {period === 'custom' && (
+            <span className="flex items-center gap-2">
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+                className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <span className="text-xs text-gray-400">to</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
+                className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-start gap-6 flex-wrap">
+          {/* Reason code multi-select */}
+          {allReasonCodes.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-gray-500">Reason code (multi-select):</span>
+              <div className="flex items-center gap-1.5 flex-wrap max-w-2xl">
+                {allReasonCodes.map(c => {
+                  const on = reasonFilter.has(c)
+                  return (
+                    <button key={c} onClick={() => setReasonFilter(prev => { const n = new Set(prev); if (n.has(c)) n.delete(c); else n.add(c); return n })}
+                      className={`text-xs px-2 py-1 rounded-md border transition-colors ${on ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>
+                      {reasonLabel(c)}
+                    </button>
+                  )
+                })}
+                {reasonFilter.size > 0 && (
+                  <button onClick={() => setReasonFilter(new Set())} className="text-xs px-2 py-1 text-gray-400 hover:text-gray-600">Clear</button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Brand single-select */}
+          {allBrands.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-gray-500">Brand (single-select):</span>
+              <select value={brandFilter} onChange={e => setBrandFilter(e.target.value)}
+                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-[12rem]">
+                <option value="">All brands</option>
+                {allBrands.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+        {filtersActive && (
+          <p className="text-xs text-gray-400">All panels below respond to the active filters.</p>
         )}
       </div>
 
-      {/* Stat cards — clickable where they have a drill-down (#54) */}
+      {/* ---- KPI cards (2.11) ---- */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {kpis.map(k => {
+          const Icon = k.icon
+          return (
+            <div key={k.label} className={`bg-white rounded-xl border p-5 border-gray-200`}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-gray-500">{k.label}</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">{k.value}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{k.sub}</p>
+                </div>
+                <div className={`p-2 rounded-lg border ${k.color}`}><Icon className="h-5 w-5" /></div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* ---- Charts grid ---- */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Success rate over time */}
+        <Panel title="Success Rate Over Time" icon={TrendingUp}
+          action={
+            <div className="flex items-center gap-1">
+              <button onClick={() => setTrendMode('bar')} className={`p-1 rounded ${trendMode === 'bar' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}><BarChart3 className="h-3.5 w-3.5" /></button>
+              <button onClick={() => setTrendMode('line')} className={`p-1 rounded ${trendMode === 'line' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}><LineIcon className="h-3.5 w-3.5" /></button>
+            </div>
+          }>
+          {trend.length === 0 ? <Empty text="No enquiries in this period" /> :
+            trendMode === 'bar'
+              ? <VBars data={trend.map(t => ({ label: t.label, value: t.value }))} suffix="%" max={100} />
+              : <Spark data={trend.map(t => t.value)} labels={trend.map(t => t.label)} suffix="%" max={100} />}
+        </Panel>
+
+        {/* Enquiries by reason code */}
+        <Panel title="Enquiries by Reason Code" icon={BarChart3}>
+          {reasonChart.length === 0 ? <Empty text="No data in this period" /> :
+            <HBars data={reasonChart} />}
+        </Panel>
+
+        {/* Supplier coverage growth */}
+        <Panel title="Supplier Coverage Growth" icon={LineIcon} subtitle="Brands with ≥1 AI-approved supplier (cumulative)">
+          {coverage.length === 0 ? <Empty text="No AI-approved suppliers yet" /> :
+            <Spark data={coverage.map(c => c.value)} labels={coverage.map(c => c.label)} />}
+        </Panel>
+
+        {/* Confirmed suppliers progress */}
+        <Panel title="Confirmed Suppliers Progress" icon={CheckCircle2} subtitle="Sourcing Complete vs Sourcing Required (all brands)">
+          <Donut complete={confirmedBrands} total={totalBrands} />
+        </Panel>
+      </div>
+
+      {/* ---- Secondary clickable cards (51-54) ---- */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map(c => {
           const Icon = c.icon
@@ -164,7 +405,7 @@ export function AiDashboardClient({ aiApproved, dnqBrands, enquiries, reviews }:
         })}
       </div>
 
-      {/* Exports (#51) */}
+      {/* ---- Exports ---- */}
       <div className="flex flex-wrap gap-2">
         <button onClick={exportBrands} disabled={exporting === 'brands'} className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50">
           <Download className="h-3.5 w-3.5" /> {exporting === 'brands' ? 'Exporting…' : 'Export Brands + Aliases'}
@@ -177,7 +418,7 @@ export function AiDashboardClient({ aiApproved, dnqBrands, enquiries, reviews }:
         </button>
       </div>
 
-      {/* Selectable tabs (#54) */}
+      {/* ---- Selectable tabs ---- */}
       <div className="flex items-center gap-0 border-b border-gray-200 overflow-x-auto">
         {tabs.map(t => {
           const Icon = t.icon
@@ -192,23 +433,38 @@ export function AiDashboardClient({ aiApproved, dnqBrands, enquiries, reviews }:
         })}
       </div>
 
-      {/* Tab content — full ranked list */}
+      {/* ---- Tab content ---- */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {tab === 'brands' && (
-          <RankedList title="Top brands the AI used (ranked)" rows={topBrands} unit="enquiries" empty="No AI enquiries in this period" />
+        {tab === 'manual_brands' && (
+          <div>
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-500" />
+              <h3 className="text-sm font-semibold text-gray-900">Top brands by manual review ({topManualBrands.length})</h3>
+            </div>
+            <div className="divide-y divide-gray-50 max-h-[28rem] overflow-y-auto">
+              {topManualBrands.length === 0 ? <Empty text="No manual reviews in this period" /> :
+                topManualBrands.map((r, i) => (
+                  <div key={r.name} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                    <span className="text-xs font-semibold text-gray-400 w-8 shrink-0">#{i + 1}</span>
+                    <span className="font-medium text-gray-900 flex-1 truncate">{r.name}</span>
+                    <span className="text-xs text-gray-400 truncate hidden sm:block">{r.reason}</span>
+                    <span className="font-semibold text-red-600 shrink-0 w-20 text-right">{r.count} review{r.count !== 1 ? 's' : ''}</span>
+                  </div>
+                ))}
+            </div>
+          </div>
         )}
-        {tab === 'suppliers' && (
-          <RankedList title="Top suppliers the AI used (ranked)" rows={topSuppliers} unit="enquiries" empty="No AI enquiries in this period" />
-        )}
+        {tab === 'brands' && <RankedList title="Top brands the AI used (ranked)" rows={topBrands} unit="enquiries" empty="No AI enquiries in this period" />}
+        {tab === 'suppliers' && <RankedList title="Top suppliers the AI used (ranked)" rows={topSuppliers} unit="enquiries" empty="No AI enquiries in this period" />}
         {tab === 'enquiries' && (
           <div>
             <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-blue-600" />
-              <h3 className="text-sm font-semibold text-gray-900">AI enquiries sent ({enqSent.length})</h3>
+              <h3 className="text-sm font-semibold text-gray-900">AI enquiries sent ({enqF.length})</h3>
             </div>
             <div className="divide-y divide-gray-50 max-h-[28rem] overflow-y-auto">
-              {enqSent.length === 0 ? <Empty text="No enquiries sent in this period" /> :
-                enqSent.map(e => (
+              {enqF.length === 0 ? <Empty text="No enquiries sent in this period" /> :
+                enqF.map(e => (
                   <div key={e.id} className="px-4 py-2.5 flex items-center gap-3 text-sm">
                     <span className="font-mono text-xs text-gray-400 w-32 shrink-0 truncate">{e.reference}</span>
                     <span className="font-medium text-gray-900 truncate flex-1">{e.brand_detected} <span className="text-gray-400 font-normal">→ {e.supplier_name}</span></span>
@@ -241,6 +497,24 @@ export function AiDashboardClient({ aiApproved, dnqBrands, enquiries, reviews }:
   )
 }
 
+// ---------- Presentational helpers ----------
+
+function Panel({ title, subtitle, icon: Icon, action, children }: { title: string; subtitle?: string; icon: typeof Tag; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+        <Icon className="h-4 w-4 text-blue-600" />
+        <div className="flex-1">
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+          {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
+        </div>
+        {action}
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  )
+}
+
 function RankedList({ title, rows, unit, empty }: { title: string; rows: { name: string; count: number }[]; unit: string; empty: string }) {
   return (
     <div>
@@ -264,4 +538,84 @@ function RankedList({ title, rows, unit, empty }: { title: string; rows: { name:
 
 function Empty({ text }: { text: string }) {
   return <p className="px-6 py-10 text-center text-sm text-gray-400">{text}</p>
+}
+
+// Vertical bars (e.g. success % per period)
+function VBars({ data, suffix = '', max }: { data: { label: string; value: number }[]; suffix?: string; max?: number }) {
+  const top = max ?? Math.max(1, ...data.map(d => d.value))
+  return (
+    <div className="flex items-end gap-1.5 h-44 overflow-x-auto pt-4">
+      {data.map(d => (
+        <div key={d.label} className="flex flex-col items-center gap-1 flex-1 min-w-[28px] h-full justify-end">
+          <span className="text-[10px] font-semibold text-gray-600">{d.value}{suffix}</span>
+          <div className="w-full bg-blue-500 rounded-t" style={{ height: `${(d.value / top) * 100}%`, minHeight: d.value > 0 ? 2 : 0 }} />
+          <span className="text-[9px] text-gray-400 truncate w-full text-center" title={d.label}>{d.label.slice(5)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Horizontal bars (e.g. reason codes)
+function HBars({ data }: { data: { label: string; count: number }[] }) {
+  const top = Math.max(1, ...data.map(d => d.count))
+  return (
+    <div className="space-y-2">
+      {data.map(d => (
+        <div key={d.label} className="flex items-center gap-2 text-xs">
+          <span className="w-44 shrink-0 truncate text-gray-600" title={d.label}>{d.label}</span>
+          <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
+            <div className="bg-blue-500 h-4 rounded-full" style={{ width: `${(d.count / top) * 100}%` }} />
+          </div>
+          <span className="w-8 text-right font-semibold text-gray-700">{d.count}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// SVG sparkline / line chart
+function Spark({ data, labels, suffix = '', max }: { data: number[]; labels: string[]; suffix?: string; max?: number }) {
+  if (data.length === 0) return <Empty text="No data" />
+  const top = max ?? Math.max(1, ...data)
+  const W = 320, H = 140, pad = 8
+  const n = data.length
+  const x = (i: number) => n === 1 ? W / 2 : pad + (i * (W - 2 * pad)) / (n - 1)
+  const y = (v: number) => H - pad - (v / top) * (H - 2 * pad)
+  const pts = data.map((v, i) => `${x(i)},${y(v)}`).join(' ')
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-40">
+        <polyline fill="none" stroke="#3b82f6" strokeWidth="2" points={pts} />
+        {data.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r="2.5" fill="#3b82f6" />)}
+      </svg>
+      <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+        <span>{labels[0]}: {data[0]}{suffix}</span>
+        <span>{labels[n - 1]}: {data[n - 1]}{suffix}</span>
+      </div>
+    </div>
+  )
+}
+
+// Donut chart for confirmed-vs-not
+function Donut({ complete, total }: { complete: number; total: number }) {
+  const required = Math.max(0, total - complete)
+  const pct = total > 0 ? complete / total : 0
+  const R = 54, C = 2 * Math.PI * R
+  return (
+    <div className="flex items-center gap-6">
+      <svg viewBox="0 0 140 140" className="h-36 w-36 shrink-0">
+        <circle cx="70" cy="70" r={R} fill="none" stroke="#fee2e2" strokeWidth="18" />
+        <circle cx="70" cy="70" r={R} fill="none" stroke="#22c55e" strokeWidth="18"
+          strokeDasharray={`${C * pct} ${C}`} strokeLinecap="round" transform="rotate(-90 70 70)" />
+        <text x="70" y="68" textAnchor="middle" className="fill-gray-900" fontSize="22" fontWeight="700">{Math.round(pct * 100)}%</text>
+        <text x="70" y="86" textAnchor="middle" className="fill-gray-400" fontSize="10">complete</text>
+      </svg>
+      <div className="space-y-2 text-sm">
+        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-green-500" /><span className="text-gray-700">Sourcing Complete</span><span className="font-semibold text-gray-900 ml-auto">{complete}</span></div>
+        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-red-200" /><span className="text-gray-700">Sourcing Required</span><span className="font-semibold text-gray-900 ml-auto">{required}</span></div>
+        <div className="flex items-center gap-2 pt-1 border-t border-gray-100"><span className="text-gray-500">Total brands</span><span className="font-semibold text-gray-900 ml-auto">{total}</span></div>
+      </div>
+    </div>
+  )
 }

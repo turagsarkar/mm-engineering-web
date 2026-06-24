@@ -12,6 +12,7 @@ export interface EnquiryRow {
   supplier_id: string | null
   supplier_name: string | null
   status: string | null
+  reason_code: string | null
   confidence: string | null
   processed_at: string | null
 }
@@ -26,6 +27,13 @@ export interface ReviewRow {
   created_at: string | null
 }
 
+// Supplier rows used to plot "Supplier Coverage Growth" (brands with >=1
+// ai_approved supplier over time).
+export interface CoverageSupplier {
+  brand_id: string | null
+  created_at: string | null
+}
+
 export default async function AiDashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -37,15 +45,20 @@ export default async function AiDashboardPage() {
   const [
     { count: aiApproved },
     { count: dnqBrands },
+    { count: totalBrands },
+    { count: confirmedBrands },
     enquiries,
     reviews,
+    coverageSuppliers,
   ] = await Promise.all([
     supabase.from('suppliers').select('*', { count: 'exact', head: true }).eq('ai_approved', true).eq('supplier_status', 'active'),
     supabase.from('brands').select('*', { count: 'exact', head: true }).eq('ai_do_not_quote', true),
+    supabase.from('brands').select('*', { count: 'exact', head: true }),
+    supabase.from('brands').select('*', { count: 'exact', head: true }).eq('confirmed_suppliers', true),
     fetchAllRows<EnquiryRow>((from, to) =>
       // @ts-expect-error enquiry_log columns not in generated types
       supabase.from('enquiry_log')
-        .select('id, reference, brand_detected, brand_id, supplier_id, supplier_name, status, confidence, processed_at')
+        .select('id, reference, brand_detected, brand_id, supplier_id, supplier_name, status, reason_code, confidence, processed_at')
         .order('processed_at', { ascending: false }).range(from, to)
     ),
     fetchAllRows<ReviewRow>((from, to) =>
@@ -54,18 +67,27 @@ export default async function AiDashboardPage() {
         .select('id, reference, reason_code, brand_extracted, email_subject, status, created_at')
         .order('created_at', { ascending: false }).range(from, to)
     ),
+    fetchAllRows<CoverageSupplier>((from, to) =>
+      supabase.from('suppliers')
+        .select('brand_id, created_at')
+        .eq('ai_approved', true).eq('supplier_status', 'active')
+        .order('created_at', { ascending: true }).range(from, to)
+    ),
   ])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <TopBar title="AI Performance" />
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto p-6">
+        <div className="max-w-6xl mx-auto p-6">
           <AiDashboardClient
             aiApproved={aiApproved ?? 0}
             dnqBrands={dnqBrands ?? 0}
+            totalBrands={totalBrands ?? 0}
+            confirmedBrands={confirmedBrands ?? 0}
             enquiries={enquiries}
             reviews={reviews}
+            coverageSuppliers={coverageSuppliers}
           />
         </div>
       </div>

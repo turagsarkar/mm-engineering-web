@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { ChevronRight, CheckCircle, XCircle, AlertTriangle, Search, X, Bot } from 'lucide-react'
+import { ChevronRight, CheckCircle, AlertTriangle, Search, X, Bot } from 'lucide-react'
 import type { Brand } from '@/lib/types/database'
 
 type FilterMode = 'all' | 'ai_dnq' | 'review_due' | 'confirmed'
@@ -42,7 +42,7 @@ export function BrandsClient({ brands, initialFilter = 'all' }: { brands: Brand[
     { id: 'all', label: 'All', count: brands.length },
     { id: 'ai_dnq', label: 'AI: Do Not Quote', count: aiDnqCount, color: 'red' },
     { id: 'review_due', label: 'Review Due', count: reviewDueCount, color: 'orange' },
-    { id: 'confirmed', label: 'Confirmed', color: 'green' },
+    { id: 'confirmed', label: 'Sourcing Complete', color: 'green' },
   ]
 
   return (
@@ -151,12 +151,12 @@ export function BrandsClient({ brands, initialFilter = 'all' }: { brands: Brand[
                   {brand.confirmed_suppliers ? (
                     <span className="flex items-center gap-1 text-xs text-green-700">
                       <CheckCircle className="h-3.5 w-3.5" />
-                      Confirmed
+                      Sourcing Complete
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1 text-xs text-gray-400">
-                      <XCircle className="h-3.5 w-3.5" />
-                      Unconfirmed
+                    <span className="flex items-center gap-1 text-xs text-red-600">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Sourcing Required
                     </span>
                   )}
                   <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-400" />

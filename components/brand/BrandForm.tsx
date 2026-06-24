@@ -13,16 +13,17 @@ import type { Brand } from '@/lib/types/database'
 
 interface BrandFormProps {
   brand?: Brand
+  initialName?: string
   onSuccess?: () => void
 }
 
-export function BrandForm({ brand, onSuccess }: BrandFormProps) {
+export function BrandForm({ brand, initialName, onSuccess }: BrandFormProps) {
   const router = useRouter()
   const { toast } = useToast()
   const { user } = useUser()
   const isEdit = !!brand
 
-  const [name, setName] = useState(brand?.name ?? '')
+  const [name, setName] = useState(brand?.name ?? initialName ?? '')
   const [aliases, setAliases] = useState((brand?.aliases ?? []).join(', '))
   const [notificationText, setNotificationText] = useState(brand?.notification_text ?? '')
   const [reviewInterval, setReviewInterval] = useState(String(brand?.review_interval_months ?? 6))

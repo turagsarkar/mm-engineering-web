@@ -170,11 +170,13 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
               className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50 ${
                 brand.confirmed_suppliers
                   ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
-                  : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                  : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
               }`}
             >
-              <CheckCircle className="h-3.5 w-3.5" />
-              {brand.confirmed_suppliers ? 'Confirmed' : 'Unconfirmed'}
+              {brand.confirmed_suppliers
+                ? <CheckCircle className="h-3.5 w-3.5" />
+                : <AlertTriangle className="h-3.5 w-3.5" />}
+              {brand.confirmed_suppliers ? 'Sourcing Complete' : 'Sourcing Required'}
             </button>
           )}
           {isAdmin && (
@@ -183,7 +185,7 @@ export function BrandHeader({ brand, onUpdate }: BrandHeaderProps) {
               className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
                 brand.ai_do_not_quote
                   ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
-                  : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                  : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
               }`}
             >
               <Bot className="h-3.5 w-3.5" />
