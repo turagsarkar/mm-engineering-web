@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { BarChart3, ArrowRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAllRows } from '@/lib/utils/fetchAll'
+import { GroupedBarChart } from '@/components/charts/Charts'
 
 // The three headline metrics (brief 2.10) shown on the home screen, defaulting
 // to the current month.
@@ -48,13 +49,12 @@ export function ActivityChart() {
     buckets.set(k, arr)
   }
   const series = [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, values]) => ({ label, values }))
-  const max = Math.max(1, ...series.flatMap(s => s.values))
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
+    <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-          <BarChart3 className="h-4 w-4 text-blue-600" />
+          <span className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><BarChart3 className="h-4 w-4" /></span>
           Activity this month
         </h3>
         <Link href="/admin/reports" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">
@@ -63,9 +63,9 @@ export function ActivityChart() {
       </div>
 
       {/* Totals */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-3 gap-3 mb-5">
         {totals.map(m => (
-          <div key={m.key}>
+          <div key={m.key} className="rounded-xl bg-gray-50 px-3 py-2.5">
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: m.color }} />
               <p className="text-2xl font-bold text-gray-900">{loading ? '—' : m.total}</p>
@@ -77,23 +77,13 @@ export function ActivityChart() {
 
       {/* Daily grouped bars */}
       {loading ? (
-        <div className="h-32 flex items-center justify-center text-sm text-gray-400">Loading…</div>
+        <div className="h-36 flex items-center justify-center text-sm text-gray-400">Loading…</div>
       ) : series.length === 0 ? (
-        <div className="h-32 flex items-center justify-center text-sm text-gray-400">No activity this month yet</div>
+        <div className="h-36 flex items-center justify-center text-sm text-gray-400">No activity this month yet</div>
       ) : (
-        <div className="flex items-end gap-1.5 h-32 overflow-x-auto pt-2">
-          {series.map(s => (
-            <div key={s.label} className="flex flex-col items-center gap-1 h-full justify-end min-w-[20px]">
-              <div className="flex items-end gap-px h-full">
-                {s.values.map((v, i) => (
-                  <div key={i} className="w-1.5 rounded-t" title={`${s.label}: ${v}`}
-                    style={{ height: `${(v / max) * 100}%`, minHeight: v > 0 ? 2 : 0, backgroundColor: CORE_METRICS[i].color }} />
-                ))}
-              </div>
-              <span className="text-[8px] text-gray-400">{s.label.slice(8)}</span>
-            </div>
-          ))}
-        </div>
+        <GroupedBarChart height={150}
+          buckets={series.map(s => ({ label: s.label.slice(8), values: s.values }))}
+          series={CORE_METRICS.map(m => ({ label: m.label, color: m.color }))} />
       )}
     </div>
   )

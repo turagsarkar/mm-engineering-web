@@ -5,6 +5,7 @@ import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { Button } from '@/components/ui/Button'
 import { Download, BarChart3 } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils/format'
+import { GroupedBarChart } from '@/components/charts/Charts'
 
 interface ProfileOption { id: string; full_name: string | null; email: string }
 
@@ -222,7 +223,8 @@ export function ReportsClient({ profiles }: { profiles: ProfileOption[] }) {
             </div>
             {timeSeries.length === 0
               ? <p className="text-center text-sm text-gray-400 py-10">No charted activity in this period</p>
-              : <GroupedBars series={timeSeries} colors={CORE_METRICS.map(m => m.color)} />}
+              : <GroupedBarChart buckets={timeSeries.map(s => ({ label: s.label.slice(5), values: s.values }))}
+                  series={CORE_METRICS.map(m => ({ label: m.label, color: m.color }))} />}
           </div>
 
           {/* Summary by action (all action types) */}
@@ -272,22 +274,3 @@ export function ReportsClient({ profiles }: { profiles: ProfileOption[] }) {
   )
 }
 
-// Grouped vertical bars: one group per time bucket, one bar per core metric.
-function GroupedBars({ series, colors }: { series: { label: string; values: number[] }[]; colors: string[] }) {
-  const max = Math.max(1, ...series.flatMap(s => s.values))
-  return (
-    <div className="flex items-end gap-2 h-52 overflow-x-auto pt-4">
-      {series.map(s => (
-        <div key={s.label} className="flex flex-col items-center gap-1 h-full justify-end min-w-[40px]">
-          <div className="flex items-end gap-0.5 h-full">
-            {s.values.map((v, i) => (
-              <div key={i} className="w-2.5 rounded-t" title={`${v}`}
-                style={{ height: `${(v / max) * 100}%`, minHeight: v > 0 ? 2 : 0, backgroundColor: colors[i] }} />
-            ))}
-          </div>
-          <span className="text-[9px] text-gray-400 truncate w-full text-center" title={s.label}>{s.label.slice(5)}</span>
-        </div>
-      ))}
-    </div>
-  )
-}

@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { useToast } from '@/components/ui/Toast'
 import { formatDateTime } from '@/lib/utils/format'
+import { BarChart, HBarChart, AreaLineChart, DonutChart } from '@/components/charts/Charts'
 import type { EnquiryRow, ReviewRow, CoverageSupplier } from './page'
 
 type Period = '1w' | '1m' | '3m' | 'all' | 'custom'
@@ -336,7 +337,7 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
         {kpis.map(k => {
           const Icon = k.icon
           return (
-            <div key={k.label} className={`bg-white rounded-xl border p-5 border-gray-200`}>
+            <div key={k.label} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs text-gray-500">{k.label}</p>
@@ -362,25 +363,32 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
           }>
           {trend.length === 0 ? <Empty text="No enquiries in this period" /> :
             trendMode === 'bar'
-              ? <VBars data={trend.map(t => ({ label: t.label, value: t.value }))} suffix="%" max={100} />
-              : <Spark data={trend.map(t => t.value)} labels={trend.map(t => t.label)} suffix="%" max={100} />}
+              ? <BarChart data={trend.map(t => ({ label: t.label.slice(5), value: t.value }))} suffix="%" maxValue={100} />
+              : <AreaLineChart data={trend.map(t => t.value)} labels={trend.map(t => t.label.slice(5))} suffix="%" maxValue={100} />}
         </Panel>
 
         {/* Enquiries by reason code */}
         <Panel title="Enquiries by Reason Code" icon={BarChart3}>
           {reasonChart.length === 0 ? <Empty text="No data in this period" /> :
-            <HBars data={reasonChart} />}
+            <HBarChart data={reasonChart} />}
         </Panel>
 
         {/* Supplier coverage growth */}
         <Panel title="Supplier Coverage Growth" icon={LineIcon} subtitle="Brands with ≥1 AI-approved supplier (cumulative)">
           {coverage.length === 0 ? <Empty text="No AI-approved suppliers yet" /> :
-            <Spark data={coverage.map(c => c.value)} labels={coverage.map(c => c.label)} />}
+            <AreaLineChart data={coverage.map(c => c.value)} labels={coverage.map(c => c.label)} />}
         </Panel>
 
         {/* Confirmed suppliers progress */}
         <Panel title="Confirmed Suppliers Progress" icon={CheckCircle2} subtitle="Sourcing Complete vs Sourcing Required (all brands)">
-          <Donut complete={confirmedBrands} total={totalBrands} />
+          <DonutChart
+            segments={[
+              { label: 'Sourcing Complete', value: confirmedBrands, color: '#22c55e' },
+              { label: 'Sourcing Required', value: Math.max(0, totalBrands - confirmedBrands), color: '#f87171' },
+            ]}
+            centerValue={`${totalBrands > 0 ? Math.round((confirmedBrands / totalBrands) * 100) : 0}%`}
+            centerLabel="complete"
+          />
         </Panel>
       </div>
 
@@ -501,16 +509,16 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
 
 function Panel({ title, subtitle, icon: Icon, action, children }: { title: string; subtitle?: string; icon: typeof Tag; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-blue-600" />
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 flex items-center gap-2.5">
+        <span className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><Icon className="h-4 w-4" /></span>
         <div className="flex-1">
           <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
           {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
         </div>
         {action}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="px-5 pb-5">{children}</div>
     </div>
   )
 }
@@ -538,84 +546,4 @@ function RankedList({ title, rows, unit, empty }: { title: string; rows: { name:
 
 function Empty({ text }: { text: string }) {
   return <p className="px-6 py-10 text-center text-sm text-gray-400">{text}</p>
-}
-
-// Vertical bars (e.g. success % per period)
-function VBars({ data, suffix = '', max }: { data: { label: string; value: number }[]; suffix?: string; max?: number }) {
-  const top = max ?? Math.max(1, ...data.map(d => d.value))
-  return (
-    <div className="flex items-end gap-1.5 h-44 overflow-x-auto pt-4">
-      {data.map(d => (
-        <div key={d.label} className="flex flex-col items-center gap-1 flex-1 min-w-[28px] h-full justify-end">
-          <span className="text-[10px] font-semibold text-gray-600">{d.value}{suffix}</span>
-          <div className="w-full bg-blue-500 rounded-t" style={{ height: `${(d.value / top) * 100}%`, minHeight: d.value > 0 ? 2 : 0 }} />
-          <span className="text-[9px] text-gray-400 truncate w-full text-center" title={d.label}>{d.label.slice(5)}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// Horizontal bars (e.g. reason codes)
-function HBars({ data }: { data: { label: string; count: number }[] }) {
-  const top = Math.max(1, ...data.map(d => d.count))
-  return (
-    <div className="space-y-2">
-      {data.map(d => (
-        <div key={d.label} className="flex items-center gap-2 text-xs">
-          <span className="w-44 shrink-0 truncate text-gray-600" title={d.label}>{d.label}</span>
-          <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
-            <div className="bg-blue-500 h-4 rounded-full" style={{ width: `${(d.count / top) * 100}%` }} />
-          </div>
-          <span className="w-8 text-right font-semibold text-gray-700">{d.count}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// SVG sparkline / line chart
-function Spark({ data, labels, suffix = '', max }: { data: number[]; labels: string[]; suffix?: string; max?: number }) {
-  if (data.length === 0) return <Empty text="No data" />
-  const top = max ?? Math.max(1, ...data)
-  const W = 320, H = 140, pad = 8
-  const n = data.length
-  const x = (i: number) => n === 1 ? W / 2 : pad + (i * (W - 2 * pad)) / (n - 1)
-  const y = (v: number) => H - pad - (v / top) * (H - 2 * pad)
-  const pts = data.map((v, i) => `${x(i)},${y(v)}`).join(' ')
-  return (
-    <div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-40">
-        <polyline fill="none" stroke="#3b82f6" strokeWidth="2" points={pts} />
-        {data.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r="2.5" fill="#3b82f6" />)}
-      </svg>
-      <div className="flex justify-between text-[10px] text-gray-400 mt-1">
-        <span>{labels[0]}: {data[0]}{suffix}</span>
-        <span>{labels[n - 1]}: {data[n - 1]}{suffix}</span>
-      </div>
-    </div>
-  )
-}
-
-// Donut chart for confirmed-vs-not
-function Donut({ complete, total }: { complete: number; total: number }) {
-  const required = Math.max(0, total - complete)
-  const pct = total > 0 ? complete / total : 0
-  const R = 54, C = 2 * Math.PI * R
-  return (
-    <div className="flex items-center gap-6">
-      <svg viewBox="0 0 140 140" className="h-36 w-36 shrink-0">
-        <circle cx="70" cy="70" r={R} fill="none" stroke="#fee2e2" strokeWidth="18" />
-        <circle cx="70" cy="70" r={R} fill="none" stroke="#22c55e" strokeWidth="18"
-          strokeDasharray={`${C * pct} ${C}`} strokeLinecap="round" transform="rotate(-90 70 70)" />
-        <text x="70" y="68" textAnchor="middle" className="fill-gray-900" fontSize="22" fontWeight="700">{Math.round(pct * 100)}%</text>
-        <text x="70" y="86" textAnchor="middle" className="fill-gray-400" fontSize="10">complete</text>
-      </svg>
-      <div className="space-y-2 text-sm">
-        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-green-500" /><span className="text-gray-700">Sourcing Complete</span><span className="font-semibold text-gray-900 ml-auto">{complete}</span></div>
-        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-red-200" /><span className="text-gray-700">Sourcing Required</span><span className="font-semibold text-gray-900 ml-auto">{required}</span></div>
-        <div className="flex items-center gap-2 pt-1 border-t border-gray-100"><span className="text-gray-500">Total brands</span><span className="font-semibold text-gray-900 ml-auto">{total}</span></div>
-      </div>
-    </div>
-  )
 }
