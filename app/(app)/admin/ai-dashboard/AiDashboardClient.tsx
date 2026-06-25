@@ -1,7 +1,7 @@
 'use client'
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
-import { Bot, AlertTriangle, Mail, ClipboardCheck, Tag, Truck, Download, TrendingUp, CheckCircle2, BarChart3, LineChart as LineIcon } from 'lucide-react'
+import { Bot, AlertTriangle, Mail, ClipboardCheck, Tag, Truck, Download, TrendingUp, CheckCircle2, BarChart3, LineChart as LineIcon, ChevronDown, Info } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAllRows } from '@/lib/utils/fetchAll'
 import { useToast } from '@/components/ui/Toast'
@@ -16,20 +16,52 @@ const PERIOD_LABEL: Record<Period, string> = {
   '1w': '1 week', '1m': '1 month', '3m': '3 months', all: 'All time', custom: 'Custom',
 }
 
-// Friendly labels for known reason codes (brief section 3). Unknown codes are
-// humanised automatically.
+// The 11 manual-review / skip reason codes from brief §3 (schema enum
+// ai_reason_code). These always appear in the Reason-code dropdown and the
+// "Enquiries by Reason Code" chart, even when a code has zero rows.
+const REVIEW_REASON_CODES = [
+  'motor_enquiry',
+  'brand_not_found',
+  'ai_do_not_quote',
+  'multiple_brands_single_line',
+  'no_ai_approved_supplier',
+  'no_supplier_email',
+  'no_part_number_extracted',
+  'no_brand_extracted',
+  'low_confidence',
+  'repeat_enquiry',
+  'duplicate_resubmission',
+] as const
+// Other codes that can appear in enquiry_log / the review queue.
+const OTHER_REASON_CODES = [
+  'supplier_sent',
+  'attachments_present',
+  'confirmed_suppliers_warning',
+  'no_rfqs_sent_footer',
+  'not_processed_by_ai',
+  'filtered',
+] as const
+const ALL_REASON_CODES: string[] = [...REVIEW_REASON_CODES, ...OTHER_REASON_CODES]
+
+// Friendly labels. Unknown codes are humanised automatically.
 const REASON_LABELS: Record<string, string> = {
-  supplier_sent: 'Supplier RFQ sent',
-  filtered: 'Filtered (spam / OOO / non-genuine)',
-  no_supplier: 'No supplier found',
+  motor_enquiry: 'Pure motor enquiry',
+  brand_not_found: 'Brand not found',
   ai_do_not_quote: 'Brand: AI do not quote',
+  multiple_brands_single_line: 'Multiple brands on one line',
+  no_ai_approved_supplier: 'No AI-approved supplier',
+  no_supplier_email: 'No supplier email',
+  no_part_number_extracted: 'No part number extracted',
+  no_brand_extracted: 'No brand extracted',
   low_confidence: 'Low confidence',
-  unconfirmed_supplier: 'Unconfirmed supplier',
-  motor_only: 'Pure motor enquiry',
-  duplicate: 'Duplicate re-submission',
-  out_of_office: 'Out of office / bounce',
-  manual_review: 'Manual review required',
-  parse_error: 'Could not parse enquiry',
+  repeat_enquiry: 'Repeat enquiry (3-month match)',
+  duplicate_resubmission: 'Duplicate re-submission',
+  supplier_sent: 'Supplier RFQ sent',
+  attachments_present: 'Attachments present',
+  confirmed_suppliers_warning: 'Confirmed-suppliers warning',
+  no_rfqs_sent_footer: 'No RFQs sent',
+  not_processed_by_ai: 'Not processed by AI',
+  filtered: 'Filtered (spam / OOO / reply)',
 }
 function reasonLabel(code: string): string {
   return REASON_LABELS[code] || code.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
@@ -64,6 +96,7 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
   const [brandFilter, setBrandFilter] = useState('')
   const [tab, setTab] = useState<Tab>('manual_brands')
   const [trendMode, setTrendMode] = useState<'bar' | 'line'>('bar')
+  const [reasonOpen, setReasonOpen] = useState(false)
   const [exporting, setExporting] = useState<string | null>(null)
 
   const start = periodStart(period, customFrom)
@@ -77,12 +110,24 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
     return true
   }
 
-  // ---- Filter options (derived from ALL data, before filtering) ----
+  // ---- Filter options ----
+  // Always offer the full canonical reason-code set (brief §3) plus any extra
+  // codes that turn up in the live data, so the dropdown lists them all.
   const allReasonCodes = useMemo(() => {
-    const s = new Set<string>()
+    const s = new Set<string>(ALL_REASON_CODES)
     for (const e of enquiries) if (e.reason_code) s.add(e.reason_code)
     for (const r of reviews) if (r.reason_code) s.add(r.reason_code)
-    return [...s].sort()
+    // preserve canonical order, then any extras alphabetically
+    const extras = [...s].filter(c => !ALL_REASON_CODES.includes(c)).sort()
+    return [...ALL_REASON_CODES.filter(c => s.has(c)), ...extras]
+  }, [enquiries, reviews])
+
+  // Row counts per reason code (across all data) for the dropdown.
+  const reasonCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const e of enquiries) if (e.reason_code) m.set(e.reason_code, (m.get(e.reason_code) ?? 0) + 1)
+    for (const r of reviews) if (r.reason_code) m.set(r.reason_code, (m.get(r.reason_code) ?? 0) + 1)
+    return m
   }, [enquiries, reviews])
 
   const allBrands = useMemo(() => {
@@ -158,12 +203,16 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
       .map(([label, v]) => ({ label, value: v.total > 0 ? Math.round((v.fully / v.total) * 100) : 0, total: v.total }))
   }, [refMap, start, end])
 
-  // ---- Enquiries by reason code ----
+  // ---- Enquiries by reason code (all canonical codes included, brief §3) ----
   const reasonChart = useMemo(() => {
     const m = new Map<string, number>()
+    // seed all 11 review codes so they always appear (even at zero)
+    for (const c of REVIEW_REASON_CODES) m.set(c, 0)
     for (const e of enqF) { const c = e.reason_code || 'unknown'; m.set(c, (m.get(c) ?? 0) + 1) }
     for (const r of revF) { const c = r.reason_code || 'unknown'; m.set(c, (m.get(c) ?? 0) + 1) }
-    return [...m.entries()].map(([code, count]) => ({ label: reasonLabel(code), count })).sort((a, b) => b.count - a.count)
+    return [...m.entries()]
+      .map(([code, count]) => ({ label: reasonLabel(code), count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
   }, [enqF, revF])
 
   // ---- Supplier coverage growth (cumulative brands with >=1 ai_approved supplier) ----
@@ -181,10 +230,13 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
   }, [coverageSuppliers])
 
   // ---- Top brands by manual review ----
+  // Grouped by the brand the workflow extracted. Rows whose brand wasn't logged
+  // (workflow gap) are grouped under "Brand not logged" so the count is still
+  // accurate and the cause is visible.
   const topManualBrands = useMemo(() => {
     const m = new Map<string, { count: number; reasons: Map<string, number> }>()
     for (const r of revF) {
-      const b = r.brand_extracted || 'Unknown'
+      const b = (r.brand_extracted || '').trim() || 'Brand not logged'
       const e = m.get(b) || { count: 0, reasons: new Map() }
       e.count++
       const rc = r.reason_code || 'unknown'
@@ -193,9 +245,10 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
     }
     return [...m.entries()].map(([name, v]) => {
       const top = [...v.reasons.entries()].sort((a, b) => b[1] - a[1])[0]
-      return { name, count: v.count, reason: top ? reasonLabel(top[0]) : '—' }
+      return { name, count: v.count, reason: top ? reasonLabel(top[0]) : '—', unlogged: name === 'Brand not logged' }
     }).sort((a, b) => b.count - a.count)
   }, [revF])
+  const unloggedReviews = useMemo(() => revF.filter(r => !(r.brand_extracted || '').trim()).length, [revF])
 
   // ---- Rankings for AI-used drilldowns ----
   function rank(items: string[]) {
@@ -294,39 +347,65 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
         </div>
 
         <div className="flex items-start gap-6 flex-wrap">
-          {/* Reason code multi-select */}
-          {allReasonCodes.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-gray-500">Reason code (multi-select):</span>
-              <div className="flex items-center gap-1.5 flex-wrap max-w-2xl">
-                {allReasonCodes.map(c => {
-                  const on = reasonFilter.has(c)
-                  return (
-                    <button key={c} onClick={() => setReasonFilter(prev => { const n = new Set(prev); if (n.has(c)) n.delete(c); else n.add(c); return n })}
-                      className={`text-xs px-2 py-1 rounded-md border transition-colors ${on ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>
-                      {reasonLabel(c)}
-                    </button>
-                  )
-                })}
-                {reasonFilter.size > 0 && (
-                  <button onClick={() => setReasonFilter(new Set())} className="text-xs px-2 py-1 text-gray-400 hover:text-gray-600">Clear</button>
-                )}
-              </div>
+          {/* Reason code multi-select dropdown — lists ALL reason codes */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-gray-500">Reason code (multi-select):</span>
+            <div className="relative">
+              <button type="button" onClick={() => setReasonOpen(o => !o)}
+                className="flex items-center justify-between gap-2 text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white hover:border-gray-300 min-w-[14rem]">
+                <span className={reasonFilter.size ? 'text-gray-900' : 'text-gray-500'}>
+                  {reasonFilter.size === 0 ? 'All reason codes' : `${reasonFilter.size} selected`}
+                </span>
+                <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${reasonOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {reasonOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setReasonOpen(false)} />
+                  <div className="absolute z-20 mt-1 w-72 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg p-1">
+                    <div className="flex items-center justify-between px-2 py-1.5">
+                      <button onClick={() => setReasonFilter(new Set(allReasonCodes))} className="text-[11px] text-blue-600 hover:underline">Select all</button>
+                      <button onClick={() => setReasonFilter(new Set())} className="text-[11px] text-gray-400 hover:text-gray-600">Clear</button>
+                    </div>
+                    {allReasonCodes.map(c => {
+                      const on = reasonFilter.has(c)
+                      const n = reasonCounts.get(c) ?? 0
+                      return (
+                        <label key={c} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer text-xs">
+                          <input type="checkbox" checked={on} onChange={() => setReasonFilter(prev => { const x = new Set(prev); if (x.has(c)) x.delete(c); else x.add(c); return x })}
+                            className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                          <span className="flex-1 text-gray-700">{reasonLabel(c)}</span>
+                          <span className={`tabular-nums ${n > 0 ? 'text-gray-500' : 'text-gray-300'}`}>{n}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
             </div>
-          )}
+          </div>
 
           {/* Brand single-select */}
-          {allBrands.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-gray-500">Brand (single-select):</span>
-              <select value={brandFilter} onChange={e => setBrandFilter(e.target.value)}
-                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-[12rem]">
-                <option value="">All brands</option>
-                {allBrands.map(b => <option key={b} value={b}>{b}</option>)}
-              </select>
-            </div>
-          )}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-gray-500">Brand (single-select):</span>
+            <select value={brandFilter} onChange={e => setBrandFilter(e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-[12rem]">
+              <option value="">All brands</option>
+              {allBrands.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
         </div>
+
+        {/* Selected reason-code chips */}
+        {reasonFilter.size > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {[...reasonFilter].map(c => (
+              <span key={c} className="inline-flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 rounded-md px-2 py-0.5">
+                {reasonLabel(c)}
+                <button onClick={() => setReasonFilter(prev => { const x = new Set(prev); x.delete(c); return x })} className="hover:text-blue-900">×</button>
+              </span>
+            ))}
+          </div>
+        )}
         {filtersActive && (
           <p className="text-xs text-gray-400">All panels below respond to the active filters.</p>
         )}
@@ -449,12 +528,18 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
               <AlertTriangle className="h-4 w-4 text-red-500" />
               <h3 className="text-sm font-semibold text-gray-900">Top brands by manual review ({topManualBrands.length})</h3>
             </div>
+            {unloggedReviews > 0 && (
+              <div className="flex items-start gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-100 text-xs text-amber-800">
+                <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>{unloggedReviews} review item{unloggedReviews !== 1 ? 's' : ''} arrived without a brand from the workflow (shown as “Brand not logged”). Populate <code className="font-mono">manual_review_queue.brand_extracted</code> in n8n to break these out by brand.</span>
+              </div>
+            )}
             <div className="divide-y divide-gray-50 max-h-[28rem] overflow-y-auto">
               {topManualBrands.length === 0 ? <Empty text="No manual reviews in this period" /> :
                 topManualBrands.map((r, i) => (
                   <div key={r.name} className="flex items-center gap-3 px-4 py-2.5 text-sm">
                     <span className="text-xs font-semibold text-gray-400 w-8 shrink-0">#{i + 1}</span>
-                    <span className="font-medium text-gray-900 flex-1 truncate">{r.name}</span>
+                    <span className={`font-medium flex-1 truncate ${r.unlogged ? 'text-gray-400 italic' : 'text-gray-900'}`}>{r.name}</span>
                     <span className="text-xs text-gray-400 truncate hidden sm:block">{r.reason}</span>
                     <span className="font-semibold text-red-600 shrink-0 w-20 text-right">{r.count} review{r.count !== 1 ? 's' : ''}</span>
                   </div>
