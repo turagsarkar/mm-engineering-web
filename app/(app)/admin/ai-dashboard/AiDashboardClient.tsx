@@ -43,6 +43,16 @@ const OTHER_REASON_CODES = [
 ] as const
 const ALL_REASON_CODES: string[] = [...REVIEW_REASON_CODES, ...OTHER_REASON_CODES]
 
+// Non-genuine reasons excluded from genuine-enquiry analytics (brief §2.11:
+// "denominator = genuine enquiries only — excludes OOO/bounces, pure motor
+// enquiries, spam, duplicate re-submissions"). The operational Pending Review
+// tab still shows these.
+const NON_GENUINE_REASONS = new Set([
+  'filtered', 'out_of_office', 'ooo', 'bounce', 'spam', 'reply', 'internal', 'system',
+  'motor_enquiry', 'duplicate_resubmission',
+])
+const isGenuine = (code: string | null) => !code || !NON_GENUINE_REASONS.has(code)
+
 // Friendly labels. Unknown codes are humanised automatically.
 const REASON_LABELS: Record<string, string> = {
   motor_enquiry: 'Pure motor enquiry',
@@ -163,8 +173,8 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
       else if (t && (cur.date === 0 || t < cur.date)) cur.date = t
       return cur
     }
-    for (const e of enqF) { const a = touch(e.reference || e.id, e.processed_at); if ((e.status ?? 'sent') === 'sent') a.sent++ }
-    for (const r of revF) { const a = touch(r.reference || r.id, r.created_at); a.review++ }
+    for (const e of enqF) { if (!isGenuine(e.reason_code)) continue; const a = touch(e.reference || e.id, e.processed_at); if ((e.status ?? 'sent') === 'sent') a.sent++ }
+    for (const r of revF) { if (!isGenuine(r.reason_code)) continue; const a = touch(r.reference || r.id, r.created_at); a.review++ }
     return m
   }, [enqF, revF])
 
@@ -233,9 +243,10 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
   // Grouped by the brand the workflow extracted. Rows whose brand wasn't logged
   // (workflow gap) are grouped under "Brand not logged" so the count is still
   // accurate and the cause is visible.
+  const genuineReviews = useMemo(() => revF.filter(r => isGenuine(r.reason_code)), [revF])
   const topManualBrands = useMemo(() => {
     const m = new Map<string, { count: number; reasons: Map<string, number> }>()
-    for (const r of revF) {
+    for (const r of genuineReviews) {
       const b = (r.brand_extracted || '').trim() || 'Brand not logged'
       const e = m.get(b) || { count: 0, reasons: new Map() }
       e.count++
@@ -247,8 +258,9 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
       const top = [...v.reasons.entries()].sort((a, b) => b[1] - a[1])[0]
       return { name, count: v.count, reason: top ? reasonLabel(top[0]) : '—', unlogged: name === 'Brand not logged' }
     }).sort((a, b) => b.count - a.count)
-  }, [revF])
-  const unloggedReviews = useMemo(() => revF.filter(r => !(r.brand_extracted || '').trim()).length, [revF])
+  }, [genuineReviews])
+  const unloggedReviews = useMemo(() => genuineReviews.filter(r => !(r.brand_extracted || '').trim()).length, [genuineReviews])
+  const excludedReviews = revF.length - genuineReviews.length
 
   // ---- Rankings for AI-used drilldowns ----
   function rank(items: string[]) {
@@ -528,10 +540,16 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
               <AlertTriangle className="h-4 w-4 text-red-500" />
               <h3 className="text-sm font-semibold text-gray-900">Top brands by manual review ({topManualBrands.length})</h3>
             </div>
+            {excludedReviews > 0 && (
+              <div className="flex items-start gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
+                <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>Excludes {excludedReviews} non-genuine item{excludedReviews !== 1 ? 's' : ''} (spam / OOO / replies, pure motor, duplicate re-submissions) per brief §2.11. They still appear in the Pending Review tab.</span>
+              </div>
+            )}
             {unloggedReviews > 0 && (
               <div className="flex items-start gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-100 text-xs text-amber-800">
                 <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                <span>{unloggedReviews} review item{unloggedReviews !== 1 ? 's' : ''} arrived without a brand from the workflow (shown as “Brand not logged”). Populate <code className="font-mono">manual_review_queue.brand_extracted</code> in n8n to break these out by brand.</span>
+                <span>{unloggedReviews} genuine review item{unloggedReviews !== 1 ? 's' : ''} arrived without a brand from the workflow (shown as “Brand not logged”). Populate <code className="font-mono">manual_review_queue.brand_extracted</code> in n8n to break these out by brand.</span>
               </div>
             )}
             <div className="divide-y divide-gray-50 max-h-[28rem] overflow-y-auto">
