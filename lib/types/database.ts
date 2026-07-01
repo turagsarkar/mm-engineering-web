@@ -332,7 +332,17 @@ export interface Database {
         Relationships: []
       }
     }
-    Functions: Record<string, never>
+    Functions: {
+      search_brands: {
+        Args: { q: string; lim?: number }
+        Returns: {
+          id: string
+          name: string
+          slug: string | null
+          aliases: string[]
+        }[]
+      }
+    }
     Enums: Record<string, never>
   }
 }

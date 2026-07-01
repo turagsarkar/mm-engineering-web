@@ -11,6 +11,9 @@ interface SearchResult {
   sub: string
   slug?: string
   score: number
+  // Brand only: the query exactly equals the brand name OR one of its aliases.
+  // Drives whether we still offer "Add as new brand" (don't, if it exists).
+  exact?: boolean
 }
 
 type FilterType = 'all' | 'brand' | 'supplier'
@@ -60,28 +63,39 @@ export function SearchBar({ compact }: SearchBarProps) {
     const prefix = `${trimmed}%`
     const contains = `%${trimmed}%`
 
-    // Two passes per entity: prefix matches (most relevant, bounded) and
-    // contains matches (catches words mid-name like "Motors"). Ordered by
-    // name so results are deterministic, then re-ranked client-side.
-    const [bPrefix, bContains, sPrefix, sContains] = await Promise.all([
-      supabase.from('brands').select('id,name,slug').ilike('name', prefix).order('name').limit(25),
-      supabase.from('brands').select('id,name,slug').ilike('name', contains).order('name').limit(25),
+    // Brands go through an RPC that matches BOTH name and aliases[] (PostgREST
+    // can't ILIKE a TEXT[] directly), so a brand known only by an alias — e.g.
+    // "PEPPERL-FUCHS" for "Pepperl + Fuchs (P+F)" — is still found. Suppliers
+    // keep two ilike passes: prefix (bounded, most relevant) + contains.
+    const [brandRpc, sPrefix, sContains] = await Promise.all([
+      supabase.rpc('search_brands', { q: trimmed, lim: 25 }),
       supabase.from('suppliers').select('id,name,email,brands(name,slug)').ilike('name', prefix).neq('supplier_status', 'pending').order('name').limit(40),
       supabase.from('suppliers').select('id,name,email,brands(name,slug)').ilike('name', contains).neq('supplier_status', 'pending').order('name').limit(40),
-    ]).catch(() => [{ data: [] }, { data: [] }, { data: [] }, { data: [] }])
+    ]).catch(() => [{ data: [] }, { data: [] }, { data: [] }])
 
     // Ignore stale responses (a newer keystroke already fired)
     if (lastQuery.current !== trimmed) return
 
-    // Merge + dedup brands by id
-    const brandMap = new Map<string, { id: string; name: string; slug: string }>()
-    for (const b of [...(bPrefix.data || []), ...(bContains.data || [])] as { id: string; name: string; slug: string }[]) {
-      if (!brandMap.has(b.id)) brandMap.set(b.id, b)
-    }
-    const brandResults: SearchResult[] = [...brandMap.values()].map(b => ({
-      type: 'brand', id: b.id, label: b.name, sub: 'Brand', slug: b.slug,
-      score: relevance(b.name, trimmed),
-    }))
+    // Brands come back deduped from SQL. Rank each against the best of its name
+    // and any alias, so an alias hit scores like a name hit while the canonical
+    // name stays as the label; surface the matched alias in the subtitle.
+    const brandResults: SearchResult[] = ((brandRpc.data || []) as { id: string; name: string; slug: string | null; aliases: string[] }[]).map(b => {
+      const terms = [b.name, ...(b.aliases || [])]
+      let score = 0
+      let matchedAlias: string | null = null
+      for (const t of terms) {
+        const r = relevance(t, trimmed)
+        if (r > score) { score = r; matchedAlias = t === b.name ? null : t }
+      }
+      const q = trimmed.toLowerCase()
+      const exact = terms.some(t => t.toLowerCase() === q)
+      return {
+        type: 'brand', id: b.id, label: b.name,
+        sub: matchedAlias ? `Alias: ${matchedAlias}` : 'Brand',
+        slug: b.slug ?? undefined,
+        score, exact,
+      }
+    })
 
     // Merge suppliers, dedup by NAME (Routeco serves many brands → one entry)
     const seenNames = new Set<string>()
@@ -137,7 +151,9 @@ export function SearchBar({ compact }: SearchBarProps) {
   // Offer "Add brand" whenever the typed name isn't an exact brand match — lets
   // the user create an unrecognised brand without leaving the search.
   const trimmedQuery = query.trim()
-  const hasExactBrand = results.some(r => r.type === 'brand' && r.label.toLowerCase() === trimmedQuery.toLowerCase())
+  // Exact match against a brand name OR any alias (r.exact) — either way the
+  // brand already exists, so don't offer to create a duplicate.
+  const hasExactBrand = results.some(r => r.type === 'brand' && r.exact)
   const canAddBrand = trimmedQuery.length > 0 && !hasExactBrand
 
   const pills: { id: FilterType; label: string; count: number }[] = [
