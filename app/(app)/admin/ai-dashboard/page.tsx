@@ -50,6 +50,7 @@ export default async function AiDashboardPage() {
     enquiries,
     reviews,
     coverageSuppliers,
+    brandFlags,
   ] = await Promise.all([
     supabase.from('suppliers').select('*', { count: 'exact', head: true }).eq('ai_approved', true).eq('supplier_status', 'active'),
     supabase.from('brands').select('*', { count: 'exact', head: true }).eq('ai_do_not_quote', true),
@@ -73,7 +74,26 @@ export default async function AiDashboardPage() {
         .eq('ai_approved', true).eq('supplier_status', 'active')
         .order('created_at', { ascending: true }).range(from, to)
     ),
+    fetchAllRows<{ name: string; aliases: string[] | null; ai_do_not_quote: boolean }>((from, to) =>
+      supabase.from('brands').select('name, aliases, ai_do_not_quote').order('name').range(from, to)
+    ),
   ])
+
+  // Build brand-name keys (name + aliases, normalised) so the client can
+  // reclassify a skipped enquiry's reason from the brand's real flags:
+  // brand not in DB → brand_not_found, brand flagged → ai_do_not_quote,
+  // otherwise → no_ai_approved_supplier.
+  const norm = (s: string | null) => (s ?? '').trim().toUpperCase().replace(/\s+/g, ' ')
+  const knownBrandKeys = new Set<string>()
+  const dnqBrandKeys = new Set<string>()
+  for (const b of brandFlags) {
+    for (const raw of [b.name, ...(b.aliases ?? [])]) {
+      const k = norm(raw)
+      if (!k) continue
+      knownBrandKeys.add(k)
+      if (b.ai_do_not_quote) dnqBrandKeys.add(k)
+    }
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -88,6 +108,8 @@ export default async function AiDashboardPage() {
             enquiries={enquiries}
             reviews={reviews}
             coverageSuppliers={coverageSuppliers}
+            knownBrandKeys={[...knownBrandKeys]}
+            dnqBrandKeys={[...dnqBrandKeys]}
           />
         </div>
       </div>

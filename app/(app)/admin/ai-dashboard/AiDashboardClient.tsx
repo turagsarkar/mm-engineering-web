@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import { Bot, AlertTriangle, Mail, ClipboardCheck, Tag, Truck, Download, TrendingUp, CheckCircle2, BarChart3, LineChart as LineIcon, ChevronDown, Info } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -95,9 +95,13 @@ interface Props {
   enquiries: EnquiryRow[]
   reviews: ReviewRow[]
   coverageSuppliers: CoverageSupplier[]
+  knownBrandKeys: string[]
+  dnqBrandKeys: string[]
 }
 
-export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirmedBrands, enquiries, reviews, coverageSuppliers }: Props) {
+const normBrand = (s: string | null) => (s ?? '').trim().toUpperCase().replace(/\s+/g, ' ')
+
+export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirmedBrands, enquiries, reviews, coverageSuppliers, knownBrandKeys, dnqBrandKeys }: Props) {
   const { toast } = useToast()
   const [period, setPeriod] = useState<Period>('all')
   const [customFrom, setCustomFrom] = useState('')
@@ -119,6 +123,25 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
     if (end !== null && t > end) return false
     return true
   }
+
+  const knownSet = useMemo(() => new Set(knownBrandKeys), [knownBrandKeys])
+  const dnqSet = useMemo(() => new Set(dnqBrandKeys), [dnqBrandKeys])
+
+  // Correct reason code for an enquiry_log row. Sent rows → supplier_sent.
+  // The workflow logs every skip as 'no_ai_approved_supplier'; reclassify those
+  // from the brand's real flags (brief §2.11 clarification): brand not in DB →
+  // brand_not_found, brand flagged AI-do-not-quote → ai_do_not_quote, else keep
+  // no_ai_approved_supplier. Non-supplier skip reasons are left untouched.
+  const classifyEnquiryReason = useCallback((e: EnquiryRow): string => {
+    if ((e.status ?? 'sent') === 'sent') return 'supplier_sent'
+    const stored = e.reason_code || 'no_ai_approved_supplier'
+    if (stored !== 'no_ai_approved_supplier') return stored
+    const key = normBrand(e.brand_detected)
+    if (!key) return 'no_brand_extracted'
+    if (!knownSet.has(key)) return 'brand_not_found'
+    if (dnqSet.has(key)) return 'ai_do_not_quote'
+    return 'no_ai_approved_supplier'
+  }, [knownSet, dnqSet])
 
   // ---- Filter options ----
   // Always offer the full canonical reason-code set (brief §3) plus any extra
@@ -183,7 +206,7 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
     for (const r of refMap.values()) {
       if (r.sent > 0 && r.review === 0) fully++
       else if (r.sent > 0 && r.review > 0) partial++
-      else if (r.review > 0) manual++
+      else manual++ // sent === 0 → Odoo card but no RFQ sent = Manual Review Only (brief §2.11)
     }
     const total = refMap.size
     const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0
@@ -214,16 +237,24 @@ export function AiDashboardClient({ aiApproved, dnqBrands, totalBrands, confirme
   }, [refMap, start, end])
 
   // ---- Enquiries by reason code (all canonical codes included, brief §3) ----
+  // Counted per ENQUIRY (distinct reference), not per line/supplier row, so a
+  // single email with many skipped lines counts once per reason it triggered.
   const reasonChart = useMemo(() => {
+    const refsByReason = new Map<string, Set<string>>()
+    const bump = (code: string, ref: string) => {
+      let s = refsByReason.get(code)
+      if (!s) { s = new Set(); refsByReason.set(code, s) }
+      s.add(ref)
+    }
+    for (const e of enqF) bump(classifyEnquiryReason(e), e.reference || e.id)
+    for (const r of revF) bump(r.reason_code || 'unknown', r.reference || r.id)
     const m = new Map<string, number>()
-    // seed all 11 review codes so they always appear (even at zero)
-    for (const c of REVIEW_REASON_CODES) m.set(c, 0)
-    for (const e of enqF) { const c = e.reason_code || 'unknown'; m.set(c, (m.get(c) ?? 0) + 1) }
-    for (const r of revF) { const c = r.reason_code || 'unknown'; m.set(c, (m.get(c) ?? 0) + 1) }
+    for (const c of REVIEW_REASON_CODES) m.set(c, 0) // always show all 11
+    for (const [c, s] of refsByReason) m.set(c, s.size)
     return [...m.entries()]
       .map(([code, count]) => ({ label: reasonLabel(code), count }))
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
-  }, [enqF, revF])
+  }, [enqF, revF, classifyEnquiryReason])
 
   // ---- Supplier coverage growth (cumulative brands with >=1 ai_approved supplier) ----
   const coverage = useMemo(() => {
